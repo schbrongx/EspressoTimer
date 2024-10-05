@@ -43,146 +43,146 @@ import kotlinx.coroutines.launch
 val Context.dataStore by preferencesDataStore(name = "settings")
 
 class MainActivity : ComponentActivity() {
-    // Instance of SettingsDataStore to manage settings
-    private lateinit var settingsDataStore: SettingsDataStore
+  // Instance of SettingsDataStore to manage settings
+  private lateinit var settingsDataStore: SettingsDataStore
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
 
-        // Initialize SettingsDataStore with application context
-        settingsDataStore = SettingsDataStore(applicationContext)
+    // Initialize SettingsDataStore with application context
+    settingsDataStore = SettingsDataStore(applicationContext)
 
-        lifecycleScope.launch {
-            val (savedTargetTime, savedLanguage) = settingsDataStore.getSavedSettings()
+    lifecycleScope.launch {
+      val (savedTargetTime, savedLanguage) = settingsDataStore.getSavedSettings()
 
-            setContent {
-                val isInitialized = remember { mutableStateOf(false) }
+      setContent {
+        val isInitialized = remember { mutableStateOf(false) }
 
-                LaunchedEffect(Unit) {
-                    // Make sure that the initial values are set only after retrieving data from DataStore
-                    isInitialized.value = true
-                }
-
-                if (isInitialized.value) {
-                    EspressoTimerMaterialTheme {
-                        EspressoTimerApp(
-                            savedTargetTime = savedTargetTime,
-                            savedLanguage = savedLanguage,
-                            settingsDataStore = settingsDataStore // Pass the SettingsDataStore to the app
-                        )
-                    }
-                } else {
-                    // Show loading UI while settings are being loaded
-                    LoadingScreen()
-                }
-            }
+        LaunchedEffect(Unit) {
+          // Make sure that the initial values are set only after retrieving data from DataStore
+          isInitialized.value = true
         }
+
+        if (isInitialized.value) {
+          EspressoTimerMaterialTheme {
+            EspressoTimerApp(
+              savedTargetTime = savedTargetTime,
+              savedLanguage = savedLanguage,
+              settingsDataStore = settingsDataStore // Pass the SettingsDataStore to the app
+            )
+          }
+        } else {
+          // Show loading UI while settings are being loaded
+          LoadingScreen()
+        }
+      }
     }
+  }
 }
 
 @Composable
 fun LoadingScreen() {
-    // A simple loading screen while settings are being loaded
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
-    }
+  // A simple loading screen while settings are being loaded
+  Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    CircularProgressIndicator()
+  }
 }
 
 // Composable function for the main application
 @Composable
 fun EspressoTimerApp(
-    savedTargetTime: Float,
-    savedLanguage: String,
-    settingsDataStore: SettingsDataStore
+  savedTargetTime: Float,
+  savedLanguage: String,
+  settingsDataStore: SettingsDataStore
 ) {
-    // Remember the NavController for navigation between screens
-    val navController = rememberNavController()
-    // Mutable state for targetTime and language
-    var targetTime by remember { mutableFloatStateOf(value = savedTargetTime) }
-    var language by remember { mutableStateOf(value = savedLanguage) }
-    val coroutineScope = rememberCoroutineScope() // obtain a CoroutineScope to be able to save settings
+  // Remember the NavController for navigation between screens
+  val navController = rememberNavController()
+  // Mutable state for targetTime and language
+  var targetTime by remember { mutableFloatStateOf(value = savedTargetTime) }
+  var language by remember { mutableStateOf(value = savedLanguage) }
+  val coroutineScope = rememberCoroutineScope() // obtain a CoroutineScope to be able to save settings
 
-    // Set up the navigation host
-    NavHost(navController = navController, startDestination = "timer") {
-        // Timer screen route
-        composable(route = "timer") {
-            TimerScreen(navController, targetTime, language)
-        }
-        // Settings screen route
-        composable(route = "settings") {
-            SettingsScreen(
-                initialTargetTime = targetTime,
-                initialLanguage = language,
-                onClose = { navController.popBackStack() },
-                onSave = { newTargetTime, newLanguage ->
-                    targetTime = newTargetTime
-                    language = newLanguage
-                    coroutineScope.launch {
-                        settingsDataStore.saveSettings(newTargetTime, newLanguage)
-                    }
-                }
-            )
-        }
+  // Set up the navigation host
+  NavHost(navController = navController, startDestination = "timer") {
+    // Timer screen route
+    composable(route = "timer") {
+      TimerScreen(navController, targetTime, language)
     }
+    // Settings screen route
+    composable(route = "settings") {
+      SettingsScreen(
+        initialTargetTime = targetTime,
+        initialLanguage = language,
+        onClose = { navController.popBackStack() },
+        onSave = { newTargetTime, newLanguage ->
+          targetTime = newTargetTime
+          language = newLanguage
+          coroutineScope.launch {
+            settingsDataStore.saveSettings(newTargetTime, newLanguage)
+          }
+        }
+      )
+    }
+  }
 }
 
 @Preview(showBackground = true)
 @Composable
 fun TimerScreenPreview() {
-    EspressoTimerMaterialTheme {
-        EspressoTimerApp(
-            savedTargetTime = DEFAULT_TARGET_TIME,
-            savedLanguage = DEFAULT_LANGUAGE,
-            settingsDataStore = SettingsDataStore(LocalContext.current)
-        )
-    }
+  EspressoTimerMaterialTheme {
+    EspressoTimerApp(
+      savedTargetTime = DEFAULT_TARGET_TIME,
+      savedLanguage = DEFAULT_LANGUAGE,
+      settingsDataStore = SettingsDataStore(LocalContext.current)
+    )
+  }
 }
 
 @Preview(showBackground = true)
 @Composable
 fun SettingsScreenPreview() {
-    EspressoTimerMaterialTheme {
-        SettingsScreen(
-            onClose = {},
-            onSave = { _, _ -> },
-            initialTargetTime = DEFAULT_TARGET_TIME,
-            initialLanguage = DEFAULT_LANGUAGE
-        )
-    }
+  EspressoTimerMaterialTheme {
+    SettingsScreen(
+      onClose = {},
+      onSave = { _, _ -> },
+      initialTargetTime = DEFAULT_TARGET_TIME,
+      initialLanguage = DEFAULT_LANGUAGE
+    )
+  }
 }
 
 @Composable
 fun EspressoTimerMaterialTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
+  darkTheme: Boolean = isSystemInDarkTheme(),
+  content: @Composable () -> Unit
 ) {
-    // Define color schemes for light and dark themes
-    val colorScheme = when {
-        darkTheme -> darkColorScheme(
-            primary = Color(color = 0xFF4A2C2A),
-            onPrimary = Color(color = 0xFFFFFFFF),
-            onSurface = Color(color = 0xFFFFFFFF)
-        )
-        else -> lightColorScheme(
-            primary = Color(color = 0xFF6F4E37),
-            onSurface = Color(color = 0xFF4A2C2A)
-        )
-    }
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        // SideEffect to modify the status bar color and appearance
-        SideEffect {
-            val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
-            val windowInsetsController = WindowCompat.getInsetsController(window, view)
-            // Set the status bar icons to dark or light based on the theme
-            windowInsetsController.isAppearanceLightStatusBars = !darkTheme
-        }
-    }
-
-    // Apply the color scheme to the MaterialTheme
-    MaterialTheme(
-        colorScheme = colorScheme,
-        content = content
+  // Define color schemes for light and dark themes
+  val colorScheme = when {
+    darkTheme -> darkColorScheme(
+      primary = Color(color = 0xFF4A2C2A),
+      onPrimary = Color(color = 0xFFFFFFFF),
+      onSurface = Color(color = 0xFFFFFFFF)
     )
+    else -> lightColorScheme(
+      primary = Color(color = 0xFF6F4E37),
+      onSurface = Color(color = 0xFF4A2C2A)
+    )
+  }
+  val view = LocalView.current
+  if (!view.isInEditMode) {
+    // SideEffect to modify the status bar color and appearance
+    SideEffect {
+      val window = (view.context as Activity).window
+      window.statusBarColor = colorScheme.primary.toArgb()
+      val windowInsetsController = WindowCompat.getInsetsController(window, view)
+      // Set the status bar icons to dark or light based on the theme
+      windowInsetsController.isAppearanceLightStatusBars = !darkTheme
+    }
+  }
+
+  // Apply the color scheme to the MaterialTheme
+  MaterialTheme(
+    colorScheme = colorScheme,
+    content = content
+  )
 }

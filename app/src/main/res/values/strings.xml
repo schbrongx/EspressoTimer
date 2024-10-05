@@ -14,6 +14,7 @@
     <string name="language">Sprache</string>
     <string name="target_time">Ziel-Zeit in Sek.</string>
     <string name="save">Speichern</string>
-    <string name="decrease">Decrease</string>
-    <string name="increase">Increase</string>
+    <string name="decrease">Erhöhen</string>
+    <string name="increase">Vermindern</string>
+    <string name="signal_enabled">Akkustisches Ende-Signal</string>
 </resources>

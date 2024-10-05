@@ -33,10 +33,8 @@ import com.schbrongx.espressotimer.ui.screens.TimerScreen
 import com.schbrongx.espressotimer.data.SettingsDataStore
 import kotlinx.coroutines.launch
 
-
 // Extension property to create a DataStore instance with the name "settings"
 val Context.dataStore by preferencesDataStore(name = "settings")
-
 
 // Main activity of the application
 class MainActivity : ComponentActivity() {

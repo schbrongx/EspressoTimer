@@ -1,0 +1,17 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="100dp"
+    android:height="100dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <!-- Oval shape for the coffee bean -->
+    <path
+        android:fillColor="#6F4E37"
+        android:pathData="M50,5 C75,5 95,25 95,50 C95,75 75,95 50,95 C25,95 5,75 5,50 C5,25 25,5 50,5 Z" />
+
+    <!-- Center line representing the coffee bean's characteristic crack -->
+    <path
+        android:strokeColor="#3E2723"
+        android:strokeWidth="3"
+        android:pathData="M50,15 C55,35 45,65 50,85" />
+</vector>

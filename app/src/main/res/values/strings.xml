@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name" translatable="false">Espresso Timer</string>
+    <string name="collapse">Auffalten</string>
+    <string name="expand">Zuklappen</string>
+    <string name="reset">Zurücksetzen</string>
+    <string name="pause">Pause</string>
+    <string name="play">Start</string>
+    <string name="training">Training</string>
+    <string name="settings">Einstellungen</string>
+    <string name="help">Hilfe</string>
+    <string name="help_title">Hilfe</string>
+    <string name="help_text">Lorem ipsum!</string>
+    <string name="close">Schliessen</string>
+    <string name="language">Sprache</string>
+    <string name="target_time">Ziel-Zeit in Sek.</string>
+    <string name="save">Speichern</string>
+    <string name="decrease">Decrease</string>
+    <string name="increase">Increase</string>
+</resources>

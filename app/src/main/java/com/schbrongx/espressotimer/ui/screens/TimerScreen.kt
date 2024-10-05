@@ -36,10 +36,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.schbrongx.espressotimer.DEFAULT_LANGUAGE
+import com.schbrongx.espressotimer.DEFAULT_TARGET_TIME
+import com.schbrongx.espressotimer.EspressoTimerApp
+import com.schbrongx.espressotimer.EspressoTimerMaterialTheme
 import com.schbrongx.espressotimer.R
+import com.schbrongx.espressotimer.data.SettingsDataStore
 import com.schbrongx.espressotimer.utils.formatTime
 import com.schbrongx.espressotimer.utils.localizedStringResource
 import kotlinx.coroutines.delay
@@ -87,6 +94,8 @@ fun TimerScreen(
             modifier = Modifier.align(Alignment.CenterHorizontally)
         )
 
+        Spacer(modifier = Modifier.height(4.dp))
+
         Box (
             modifier = Modifier
                 .fillMaxWidth()
@@ -98,28 +107,23 @@ fun TimerScreen(
                 progress = { progress },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(24.dp)
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                        shape = RoundedCornerShape(4.dp)
-                    ),
+                    .height(16.dp),
                 color = progressColor,
-                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                trackColor = progressColor.copy(alpha = 0.3f),
             )
 
             // Text showing the target time, placed at the end of the progress bar
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .align(Alignment.Center)
+                    .align(Alignment.Center),
             ) {
                 Text(
                     text = targetTime.toString(),
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = 8.dp),
+                        .padding(end = 12.dp),
                 )
             }
         }
@@ -204,5 +208,17 @@ fun TimerScreen(
                 }
             )
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun TimerScreenPreview() {
+    EspressoTimerMaterialTheme {
+        EspressoTimerApp(
+            savedTargetTime = DEFAULT_TARGET_TIME,
+            savedLanguage = DEFAULT_LANGUAGE,
+            settingsDataStore = SettingsDataStore(LocalContext.current)
+        )
     }
 }

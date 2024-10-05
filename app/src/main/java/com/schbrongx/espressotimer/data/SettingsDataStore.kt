@@ -10,6 +10,7 @@ import com.schbrongx.espressotimer.DEFAULT_TARGET_TIME
 import com.schbrongx.espressotimer.dataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 // Class to manage saving and loading settings using DataStore
@@ -19,6 +20,14 @@ class SettingsDataStore(private val context: Context) {
         // Preference keys for target time and language
         val TARGET_TIME_KEY = floatPreferencesKey(name = "target_time")
         val LANGUAGE_KEY = stringPreferencesKey(name = "language")
+    }
+
+    // Suspend function to save settings (targetTime and language) into DataStore
+    suspend fun getSavedSettings(): Pair<Float, String> {
+        val preferences = context.dataStore.data.first()
+        val targetTime = preferences[TARGET_TIME_KEY] ?: DEFAULT_TARGET_TIME
+        val language = preferences[LANGUAGE_KEY] ?: DEFAULT_LANGUAGE
+        return targetTime to language
     }
 
     // Suspend function to save settings (targetTime and language) into DataStore

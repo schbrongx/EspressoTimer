@@ -8,3 +8,6 @@ val AVAILABLE_LANGUAGES = listOf(
 // The app's default language and default target time
 const val DEFAULT_LANGUAGE = "de"
 const val DEFAULT_TARGET_TIME = 21.5f
+
+// Default setting for acoustic signals
+const val DEFAULT_SIGNAL_ENABLED = true

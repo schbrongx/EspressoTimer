@@ -16,4 +16,5 @@
     <string name="save">Save</string>
     <string name="decrease">Decrease</string>
     <string name="increase">Increase</string>
+    <string name="signal_enabled">Acoustic end-signal</string>
 </resources>

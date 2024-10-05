@@ -53,10 +53,10 @@ class MainActivity : ComponentActivity() {
     settingsDataStore = SettingsDataStore(applicationContext)
 
     lifecycleScope.launch {
-      val (savedTargetTime, savedLanguage) = settingsDataStore.getSavedSettings()
+      val (savedTargetTime, savedLanguage, savedSignalEnabled) = settingsDataStore.getSavedSettings()
 
       setContent {
-        val isInitialized = remember { mutableStateOf(false) }
+        val isInitialized = remember { mutableStateOf(value = false) }
 
         LaunchedEffect(Unit) {
           // Make sure that the initial values are set only after retrieving data from DataStore
@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
             EspressoTimerApp(
               savedTargetTime = savedTargetTime,
               savedLanguage = savedLanguage,
+              savedSignalEnabled = savedSignalEnabled,
               settingsDataStore = settingsDataStore // Pass the SettingsDataStore to the app
             )
           }
@@ -93,6 +94,7 @@ fun LoadingScreen() {
 fun EspressoTimerApp(
   savedTargetTime: Float,
   savedLanguage: String,
+  savedSignalEnabled: Boolean,
   settingsDataStore: SettingsDataStore
 ) {
   // Remember the NavController for navigation between screens
@@ -100,25 +102,28 @@ fun EspressoTimerApp(
   // Mutable state for targetTime and language
   var targetTime by remember { mutableFloatStateOf(value = savedTargetTime) }
   var language by remember { mutableStateOf(value = savedLanguage) }
+  var signalEnabled by remember { mutableStateOf(value = savedSignalEnabled) }
   val coroutineScope = rememberCoroutineScope() // obtain a CoroutineScope to be able to save settings
 
   // Set up the navigation host
   NavHost(navController = navController, startDestination = "timer") {
     // Timer screen route
     composable(route = "timer") {
-      TimerScreen(navController, targetTime, language)
+      TimerScreen(navController, targetTime, language, signalEnabled)
     }
     // Settings screen route
     composable(route = "settings") {
       SettingsScreen(
         initialTargetTime = targetTime,
         initialLanguage = language,
+        initialSignalEnabled = signalEnabled,
         onClose = { navController.popBackStack() },
-        onSave = { newTargetTime, newLanguage ->
+        onSave = { newTargetTime, newLanguage, newSignalEnabled ->
           targetTime = newTargetTime
           language = newLanguage
+          signalEnabled = newSignalEnabled
           coroutineScope.launch {
-            settingsDataStore.saveSettings(newTargetTime, newLanguage)
+            settingsDataStore.saveSettings(newTargetTime, newLanguage, newSignalEnabled)
           }
         }
       )
@@ -133,6 +138,7 @@ fun TimerScreenPreview() {
     EspressoTimerApp(
       savedTargetTime = DEFAULT_TARGET_TIME,
       savedLanguage = DEFAULT_LANGUAGE,
+      savedSignalEnabled = DEFAULT_SIGNAL_ENABLED,
       settingsDataStore = SettingsDataStore(LocalContext.current)
     )
   }
@@ -144,9 +150,10 @@ fun SettingsScreenPreview() {
   EspressoTimerMaterialTheme {
     SettingsScreen(
       onClose = {},
-      onSave = { _, _ -> },
+      onSave = { _, _, _ -> },
       initialTargetTime = DEFAULT_TARGET_TIME,
-      initialLanguage = DEFAULT_LANGUAGE
+      initialLanguage = DEFAULT_LANGUAGE,
+      initialSignalEnabled = true,
     )
   }
 }

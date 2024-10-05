@@ -1,6 +1,6 @@
 package com.schbrongx.espressotimer.ui.screens
 
-import androidx.compose.foundation.border
+import android.media.MediaPlayer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Help
 import androidx.compose.material.icons.rounded.Pause
@@ -32,11 +31,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,30 +51,64 @@ import com.schbrongx.espressotimer.data.SettingsDataStore
 import com.schbrongx.espressotimer.utils.formatTime
 import com.schbrongx.espressotimer.utils.localizedStringResource
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 // Composable function for the timer screen
 @Composable
 fun TimerScreen(
     navController: NavController,
     targetTime: Float,
-    language: String
+    language: String,
+    signalEnabled: Boolean
 ) {
-    // Mutable state for the timer
     var time by remember { mutableFloatStateOf(value = 0F) }
-    // Mutable state to track if the timer is running
     var isRunning by remember { mutableStateOf(value = false) }
-    // Mutable state to control the display of the help dialog
     var showHelp by remember { mutableStateOf(value = false) }
+    val context = LocalContext.current
+
     // Calculate progress based on the elapsed time and target time
     val progress = (time / (targetTime * 1000)).coerceIn(0f, 1f)  // Ensure progress is between 0 and 1
     // Determine the color of the progress bar (red if over target time)
     val progressColor = if (time >= targetTime * 1000) Color.Red else MaterialTheme.colorScheme.primary
+
+    // Prüfen, ob wir in der Preview-Umgebung sind
+    val isInPreview = LocalInspectionMode.current
+
+    // TODO: Playing sound is a bit laggy but it works. Maybe find a better solution.
+    // MediaPlayer instances for sounds
+    val blipSound = if (!isInPreview) MediaPlayer.create(context, R.raw.blip) else null
+    val beepSound = if (!isInPreview) MediaPlayer.create(context, R.raw.beep) else null
+
+    // Flags für das einmalige Abspielen der Sounds
+    var blip2SecPlayed by remember { mutableStateOf(value = false) }
+    var blip1SecPlayed by remember { mutableStateOf(value = false) }
+    var beepPlayed by remember { mutableStateOf(value = false) }
+
+    // Ein separater CoroutineScope für das Abspielen der Sounds
+    val coroutineScope = rememberCoroutineScope()
 
     // Launch an effect when isRunning changes
     LaunchedEffect(isRunning) {
         while (isRunning) {
             delay(timeMillis = 100L)
             time += 100
+            if (signalEnabled && !isInPreview) {
+                // Blip bei 2 Sekunden Restzeit
+                if (targetTime * 1000 - time <= 2000 && targetTime > 2 && !blip2SecPlayed) {
+                    coroutineScope.launch { blipSound?.start() }
+                    blip2SecPlayed = true
+                }
+                // Blip bei 1 Sekunde Restzeit
+                if (targetTime * 1000 - time <= 1000 && targetTime > 1 && !blip1SecPlayed) {
+                    coroutineScope.launch { blipSound?.start() }
+                    blip1SecPlayed = true
+                }
+                // Beep am Ende der Zeit
+                if (time >= targetTime * 1000 && !beepPlayed) {
+                    coroutineScope.launch { beepSound?.start() }
+                    beepPlayed = true
+                }
+            }
         }
     }
 
@@ -159,6 +194,9 @@ fun TimerScreen(
                     .clickable {
                         time = 0F
                         isRunning = false
+                        blip1SecPlayed = false
+                        blip2SecPlayed = false
+                        beepPlayed = false
                     }
             )
             // Training icon (placeholder for future functionality)
@@ -218,7 +256,8 @@ fun TimerScreenPreview() {
         EspressoTimerApp(
             savedTargetTime = DEFAULT_TARGET_TIME,
             savedLanguage = DEFAULT_LANGUAGE,
-            settingsDataStore = SettingsDataStore(LocalContext.current)
+            settingsDataStore = SettingsDataStore(LocalContext.current),
+            savedSignalEnabled = true
         )
     }
 }

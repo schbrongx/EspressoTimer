@@ -9,7 +9,7 @@
     <string name="settings">Einstellungen</string>
     <string name="help">Hilfe</string>
     <string name="help_title">Hilfe</string>
-    <string name="help_text">Lorem ipsum!</string>
+    <string name="help_text">Hilfetext in Deutscher Sprache</string>
     <string name="close">Schliessen</string>
     <string name="language">Sprache</string>
     <string name="target_time">Ziel-Zeit in Sek.</string>
@@ -17,4 +17,9 @@
     <string name="decrease">Erhöhen</string>
     <string name="increase">Vermindern</string>
     <string name="signal_enabled">Akkustisches Ende-Signal</string>
+    <string name="training_screen">Training</string>
+    <string name="back">Zurück</string>
+    <string name="train_your_machine">Geräusch der Espressomaschine trainieren</string>
+    <string name="start_training">Training starten</string>
+    <string name="stop_training">Training beenden</string>
 </resources>

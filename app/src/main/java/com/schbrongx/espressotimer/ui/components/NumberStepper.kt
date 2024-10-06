@@ -56,19 +56,19 @@ fun NumberStepper(
                 style = MaterialTheme.typography.bodyLarge
             )
             Spacer(Modifier.width(10.dp))
-            // Increase button
-            IconButton(onClick = {
-                val newValue = (value + step).coerceIn(range)
-                onValueChange(newValue)
-            }) {
-                Icon(Icons.Default.AddCircleOutline, contentDescription = localizedStringResource(language, R.string.increase))
-            }
             // Decrease button
             IconButton(onClick = {
                 val newValue = (value - step).coerceIn(range)
                 onValueChange(newValue)
             }) {
                 Icon(Icons.Default.RemoveCircleOutline, contentDescription = localizedStringResource(language, R.string.decrease))
+            }
+            // Increase button
+            IconButton(onClick = {
+                val newValue = (value + step).coerceIn(range)
+                onValueChange(newValue)
+            }) {
+                Icon(Icons.Default.AddCircleOutline, contentDescription = localizedStringResource(language, R.string.increase))
             }
         }
     }

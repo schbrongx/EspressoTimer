@@ -1,5 +1,6 @@
 package com.schbrongx.espressotimer.ui.screens
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -41,6 +43,7 @@ import com.schbrongx.espressotimer.utils.localizedStringResource
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    onNavigateBack: () -> Unit,
     initialTargetTime: Float,
     initialLanguage: String,
     initialSignalEnabled: Boolean,
@@ -55,10 +58,11 @@ fun SettingsScreen(
         topBar = {
             TopAppBar(
                 title = { Text(localizedStringResource(language, R.string.settings)) },
-                actions = {
-                    // Close button in the app bar
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.Filled.Close, contentDescription = localizedStringResource(language, R.string.close))
+                modifier = Modifier
+                    .border(width = 1.dp, color = MaterialTheme.colorScheme.primary),
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = localizedStringResource(language, R.string.back))
                     }
                 }
             )
@@ -129,6 +133,7 @@ fun SettingsScreen(
 fun SettingsScreenPreview() {
     EspressoTimerMaterialTheme {
         SettingsScreen(
+            onNavigateBack = {},
             onClose = {},
             onSave = { _, _, _ -> },
             initialTargetTime = DEFAULT_TARGET_TIME,

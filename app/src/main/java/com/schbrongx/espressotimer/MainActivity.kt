@@ -37,6 +37,7 @@ import androidx.navigation.compose.rememberNavController
 import com.schbrongx.espressotimer.data.SettingsDataStore
 import com.schbrongx.espressotimer.ui.screens.SettingsScreen
 import com.schbrongx.espressotimer.ui.screens.TimerScreen
+import com.schbrongx.espressotimer.ui.screens.TrainingScreen
 import kotlinx.coroutines.launch
 
 // Extension property to create a DataStore instance with the name "settings"
@@ -109,11 +110,20 @@ fun EspressoTimerApp(
   NavHost(navController = navController, startDestination = "timer") {
     // Timer screen route
     composable(route = "timer") {
-      TimerScreen(navController, targetTime, language, signalEnabled)
+      TimerScreen(
+        navController,
+        targetTime,
+        language,
+        signalEnabled,
+        useAIToStartTimer = false,
+        onAIStartToggle = { /* Handle AI Timer toggle */},
+        onTrainingIconClicked = { navController.navigate(route = "settings") }
+      )
     }
     // Settings screen route
     composable(route = "settings") {
       SettingsScreen(
+        onNavigateBack = {},
         initialTargetTime = targetTime,
         initialLanguage = language,
         initialSignalEnabled = signalEnabled,
@@ -127,6 +137,10 @@ fun EspressoTimerApp(
           }
         }
       )
+    }
+    // Training screen route
+    composable(route = "training") {
+      TrainingScreen(onNavigateBack = { navController.popBackStack() }, language = language)
     }
   }
 }
@@ -149,12 +163,22 @@ fun TimerScreenPreview() {
 fun SettingsScreenPreview() {
   EspressoTimerMaterialTheme {
     SettingsScreen(
+      onNavigateBack = {},
       onClose = {},
       onSave = { _, _, _ -> },
       initialTargetTime = DEFAULT_TARGET_TIME,
       initialLanguage = DEFAULT_LANGUAGE,
       initialSignalEnabled = true,
     )
+  }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun TrainingScreenPreview() {
+  EspressoTimerMaterialTheme {
+    TrainingScreen(onNavigateBack = {}, language = DEFAULT_LANGUAGE)
+
   }
 }
 

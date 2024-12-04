@@ -1,3 +1,4 @@
+/* TimerScreen.kt */
 package com.schbrongx.espressotimer.ui.screens
 
 import android.media.MediaPlayer
@@ -21,12 +22,13 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -47,7 +49,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.schbrongx.espressotimer.DEFAULT_LANGUAGE
+import com.schbrongx.espressotimer.DEFAULT_SIGNAL_ENABLED
 import com.schbrongx.espressotimer.DEFAULT_TARGET_TIME
+import com.schbrongx.espressotimer.DEFAULT_USE_AI_TO_START_TIMER
 import com.schbrongx.espressotimer.EspressoTimerApp
 import com.schbrongx.espressotimer.EspressoTimerMaterialTheme
 import com.schbrongx.espressotimer.R
@@ -65,10 +69,10 @@ fun TimerScreen(
   targetTime: Float,
   language: String,
   signalEnabled: Boolean,
-  useAIToStartTimer: Boolean,
+  initialUseAIToStartTimer: Boolean,
   onAIStartToggle: (Boolean) -> Unit,
-  onTrainingIconClicked: () -> Unit
 ) {
+  var useAIToStartTimer by remember { mutableStateOf(initialUseAIToStartTimer) }
   var time by remember { mutableFloatStateOf(value = 0F) }
   var isRunning by remember { mutableStateOf(value = false) }
   var showHelp by remember { mutableStateOf(value = false) }
@@ -125,7 +129,6 @@ fun TimerScreen(
       TopAppBar(title = { Text(text = localizedStringResource(language, R.string.app_name)) })
     }
   ) { innerPadding ->
-
     Column(
       verticalArrangement = Arrangement.Top,
       modifier = Modifier
@@ -181,24 +184,35 @@ fun TimerScreen(
       // Play/Pause Icon to control the timer
       Icon(
         imageVector = if (isRunning) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-        contentDescription = if (isRunning) localizedStringResource(
-          language,
-          R.string.pause
-        ) else localizedStringResource(language, R.string.play),
+        contentDescription = if (isRunning) localizedStringResource(language, R.string.pause)
+            else localizedStringResource(language, R.string.play),
         modifier = Modifier
           .size(120.dp)
           .padding(top = 16.dp)
           .align(Alignment.CenterHorizontally)
           .clickable { isRunning = !isRunning }
       )
+
+      // A
       Row (
-        verticalAlignment = Alignment.CenterVertically
-      ){
-        Checkbox(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = 8.dp)
+      ) {
+        Switch(
           checked = useAIToStartTimer,
-          onCheckedChange = { checked -> onAIStartToggle(checked) }
+          onCheckedChange = { checked ->
+            useAIToStartTimer = checked
+            onAIStartToggle(checked)
+          },
+          modifier = Modifier.padding(end = 8.dp),
+          colors = SwitchDefaults.colors(
+            checkedBorderColor = MaterialTheme.colorScheme.primary,
+            uncheckedBorderColor = MaterialTheme.colorScheme.primary,
+          )
         )
-        Text(text = "Use AI to start timer")
+        Text(text = localizedStringResource(language, R.string.use_ai_to_start_timer))
       }
 
 
@@ -234,7 +248,9 @@ fun TimerScreen(
           modifier = Modifier
             .size(48.dp)
             .weight(1f)
-            .clickable { /* TODO: Navigate to Training screen */ }
+            .clickable {
+              navController.navigate(route = "training")
+            }
         )
         // Settings icon to navigate to settings screen
         Icon(
@@ -286,7 +302,11 @@ fun TimerScreenPreview() {
       savedTargetTime = DEFAULT_TARGET_TIME,
       savedLanguage = DEFAULT_LANGUAGE,
       settingsDataStore = SettingsDataStore(LocalContext.current),
-      savedSignalEnabled = true
+      savedSignalEnabled = DEFAULT_SIGNAL_ENABLED,
+      useAIToStartTimer = DEFAULT_USE_AI_TO_START_TIMER,
+      onAIStartToggle = { checked ->
+        println("useAIToStartTimer changed to $checked")
+      }
     )
   }
 }

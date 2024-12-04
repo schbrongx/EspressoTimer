@@ -1,28 +1,29 @@
 """
 Project Structure and Full Content Extraction Script
 
-This script scans the entire project directory under 'app/src/main/' and extracts relevant information
-from all Kotlin (.kt) and XML (.xml) files. The extracted information includes:
+wThis script scans the entire project directory under 'app/src/main/' and extracts relevant
+information from all Kotlin (.kt) and XML (.xml) files. The extracted information includes:
 
-1. **Project Structure**: A detailed representation of all directories and files, providing an overview
-   of the entire structure.
+1. **Project Structure**: A detailed representation of all directories and files, providing an
+overview of the entire structure.
 
-2. **Kotlin and XML Files**: Full content extraction of relevant Kotlin (.kt) and XML (.xml) files.
-   Additionally, the script performs a search for relevant elements such as class definitions, function signatures, and
-   key XML tags to provide a comprehensive understanding of the codebase.
+2. **Kotlin and XML Files**: Full content extraction of relevant Kotlin (.kt) and XML (.xml)
+files. Additionally, the script performs a search for relevant elements such as class
+definitions, function signatures, and key XML tags to provide a comprehensive understanding of
+the codebase.
 
-The output of this script is intended to be detailed, easy to read, and suitable for sharing directly
-in a chat, enabling efficient collaboration without manually navigating the entire project.
+The output of this script is intended to be detailed, easy to read, and suitable for sharing
+directly in a chat, enabling efficient collaboration without manually navigating the entire project.
 
-Functions:
-- extract_full_content_from_kotlin(file_path): Extracts the full content from Kotlin files and highlights class and function definitions.
-- extract_full_content_from_xml(file_path): Extracts the full content from XML files and highlights key XML tags.
-- scan_project_structure(directory): Scans the directory and compiles the project structure and full content of relevant files.
-- main(): The main function to execute the extraction and print the results.
+Functions: - extract_full_content_from_kotlin(file_path): Extracts the full content from Kotlin
+files and highlights class and function definitions. - extract_full_content_from_xml(file_path):
+Extracts the full content from XML files and highlights key XML tags. - scan_project_structure(
+directory): Scans the directory and compiles the project structure and full content of relevant
+files. - main(): The main function to execute the extraction and print the results.
 
-Usage:
-- Run this script in the root directory of your project.
-- The script will output the project structure along with the full content of Kotlin and XML files, highlighting relevant elements.
+Usage: - Run this script in the root directory of your project. - The script will output the
+project structure along with the full content of Kotlin and XML files, highlighting relevant
+elements.
 
 Note:
 - This script is designed for small to medium-sized projects where an overview of the structure and
@@ -32,6 +33,10 @@ Note:
 import os
 import re
 
+# Constants
+OUTPUT_FILENAME = "chatgpt.output.txt"  # Output file name
+
+
 def extract_full_content_from_kotlin(file_path):
     """
     Extracts the full content from a Kotlin file and highlights class and function definitions.
@@ -39,8 +44,8 @@ def extract_full_content_from_kotlin(file_path):
     Args:
         file_path (str): The path to the Kotlin file.
 
-    Returns:
-        dict: A dictionary containing the full content and highlighted elements (classes and functions).
+    Returns: dict: A dictionary containing the full content and highlighted elements (classes and
+    functions).
     """
     with open(file_path, 'r', encoding='utf-8') as file:
         content = file.read()
@@ -52,6 +57,7 @@ def extract_full_content_from_kotlin(file_path):
             "classes": classes,
             "functions": functions
         }
+
 
 def extract_full_content_from_xml(file_path):
     """
@@ -66,11 +72,13 @@ def extract_full_content_from_xml(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
         content = file.read()
         # Extract key XML tags (excluding comments and empty lines)
-        key_tags = [line.strip() for line in content.splitlines() if re.search(r'<[^!?].*?>', line.strip())]
+        key_tags = [line.strip() for line in content.splitlines()
+                    if re.search(r'<[^!?].*?>', line.strip())]
         return {
             "full_content": content,
             "key_tags": key_tags
         }
+
 
 def scan_project_structure(directory):
     """
@@ -79,11 +87,12 @@ def scan_project_structure(directory):
     Args:
         directory (str): The root directory to scan.
 
-    Returns:
-        tuple: A tuple containing the project structure as a list and the extracted content as a dictionary.
+    Returns: tuple: A tuple containing the project structure as a list and the extracted content
+    as a dictionary.
     """
     extracted_info = {}
     project_structure = []
+    relevant_info = ""
 
     for root, _, files in os.walk(directory):
         # Store the project structure
@@ -109,37 +118,46 @@ def scan_project_structure(directory):
 
     return project_structure, extracted_info
 
+
 def main():
     """
     Main function to execute the project structure and content extraction.
-    Outputs the project structure and full content of relevant files.
+    Outputs the project structure and full content of relevant files to a file.
     """
     project_directory = "app/src/main/"  # Directory of your project
     project_structure, extracted_info = scan_project_structure(project_directory)
 
-    # Print the project structure
-    print("Project Structure:")
-    for line in project_structure:
-        print(line)
-    print("\n")
+    # Get the directory where the script is located
+    script_directory = os.path.dirname(os.path.abspath(__file__))
+    output_file_path = os.path.join(script_directory, OUTPUT_FILENAME)
 
-    # Print the extracted full content and highlighted elements
-    print("Extracted Full Content and Highlights:")
-    for file_path, info in extracted_info.items():
-        print(f"File: {file_path}")
-        print("Full Content:")
-        print(info["full_content"])
-        print("\nHighlighted Elements:")
-        if "classes" in info:
-            for cls in info["classes"]:
-                print(f"  Class: {cls}")
-        if "functions" in info:
-            for func in info["functions"]:
-                print(f"  Function: {func}")
-        if "key_tags" in info:
-            for tag in info["key_tags"]:
-                print(f"  XML Tag: {tag}")
-        print("\n")
+    with open(output_file_path, 'w', encoding='utf-8') as output_file:
+        # Write the project structure
+        output_file.write("Project Structure:\n")
+        for line in project_structure:
+            output_file.write(f"{line}\n")
+        output_file.write("\n\n")
+
+        # Write the extracted full content and highlighted elements
+        output_file.write("Extracted Full Content and Highlights:\n")
+        for file_path, info in extracted_info.items():
+            output_file.write(f"File: {file_path}\n")
+            output_file.write("Full Content:\n")
+            output_file.write(f"{info['full_content']}\n\n")
+            output_file.write("Highlighted Elements:\n")
+            if "classes" in info:
+                for cls in info["classes"]:
+                    output_file.write(f"  Class: {cls}\n")
+            if "functions" in info:
+                for func in info["functions"]:
+                    output_file.write(f"  Function: {func}\n")
+            if "key_tags" in info:
+                for tag in info["key_tags"]:
+                    output_file.write(f"  XML Tag: {tag}\n")
+            output_file.write("\n")
+
+    print(f"Output has been written to {OUTPUT_FILENAME}")
+
 
 if __name__ == "__main__":
     main()

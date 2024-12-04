@@ -1,3 +1,4 @@
+/* MainActivity.kt */
 package com.schbrongx.espressotimer
 
 import android.app.Activity
@@ -54,7 +55,7 @@ class MainActivity : ComponentActivity() {
     settingsDataStore = SettingsDataStore(applicationContext)
 
     lifecycleScope.launch {
-      val (savedTargetTime, savedLanguage, savedSignalEnabled) = settingsDataStore.getSavedSettings()
+      val (savedTargetTime, savedLanguage, savedSignalEnabled, savedUseAIToStartTimer) = settingsDataStore.getSavedSettings()
 
       setContent {
         val isInitialized = remember { mutableStateOf(value = false) }
@@ -70,6 +71,17 @@ class MainActivity : ComponentActivity() {
               savedTargetTime = savedTargetTime,
               savedLanguage = savedLanguage,
               savedSignalEnabled = savedSignalEnabled,
+              useAIToStartTimer = savedUseAIToStartTimer,
+              onAIStartToggle = { isEnabled ->
+                lifecycleScope.launch {
+                  settingsDataStore.saveSettings(
+                    savedTargetTime,
+                    savedLanguage,
+                    savedSignalEnabled,
+                    isEnabled
+                  )
+                }
+              },
               settingsDataStore = settingsDataStore // Pass the SettingsDataStore to the app
             )
           }
@@ -96,6 +108,8 @@ fun EspressoTimerApp(
   savedTargetTime: Float,
   savedLanguage: String,
   savedSignalEnabled: Boolean,
+  useAIToStartTimer: Boolean,
+  onAIStartToggle: (Boolean) -> Unit,
   settingsDataStore: SettingsDataStore
 ) {
   // Remember the NavController for navigation between screens
@@ -115,9 +129,10 @@ fun EspressoTimerApp(
         targetTime,
         language,
         signalEnabled,
-        useAIToStartTimer = false,
-        onAIStartToggle = { /* Handle AI Timer toggle */},
-        onTrainingIconClicked = { navController.navigate(route = "settings") }
+        initialUseAIToStartTimer = useAIToStartTimer,
+        onAIStartToggle = { checked ->
+          onAIStartToggle(checked)
+        }
       )
     }
     // Settings screen route
@@ -127,13 +142,14 @@ fun EspressoTimerApp(
         initialTargetTime = targetTime,
         initialLanguage = language,
         initialSignalEnabled = signalEnabled,
+        initialUseAIToStartTimer = useAIToStartTimer,
         onClose = { navController.popBackStack() },
-        onSave = { newTargetTime, newLanguage, newSignalEnabled ->
+        onSave = { newTargetTime, newLanguage, newSignalEnabled, newUseAIToStartTimer ->
           targetTime = newTargetTime
           language = newLanguage
           signalEnabled = newSignalEnabled
           coroutineScope.launch {
-            settingsDataStore.saveSettings(newTargetTime, newLanguage, newSignalEnabled)
+            settingsDataStore.saveSettings(newTargetTime, newLanguage, newSignalEnabled, newUseAIToStartTimer)
           }
         }
       )
@@ -152,8 +168,12 @@ fun TimerScreenPreview() {
     EspressoTimerApp(
       savedTargetTime = DEFAULT_TARGET_TIME,
       savedLanguage = DEFAULT_LANGUAGE,
-      savedSignalEnabled = DEFAULT_SIGNAL_ENABLED,
-      settingsDataStore = SettingsDataStore(LocalContext.current)
+      settingsDataStore = SettingsDataStore(LocalContext.current),
+      savedSignalEnabled = true,
+      useAIToStartTimer = true,
+      onAIStartToggle = { checked ->
+        println("useAIToStartTimer changed to $checked")
+      }
     )
   }
 }
@@ -165,10 +185,11 @@ fun SettingsScreenPreview() {
     SettingsScreen(
       onNavigateBack = {},
       onClose = {},
-      onSave = { _, _, _ -> },
+      onSave = { _, _, _, _ -> },
       initialTargetTime = DEFAULT_TARGET_TIME,
       initialLanguage = DEFAULT_LANGUAGE,
-      initialSignalEnabled = true,
+      initialSignalEnabled = DEFAULT_SIGNAL_ENABLED,
+      initialUseAIToStartTimer = DEFAULT_USE_AI_TO_START_TIMER
     )
   }
 }

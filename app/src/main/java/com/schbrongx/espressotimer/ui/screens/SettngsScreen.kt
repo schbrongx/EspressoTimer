@@ -1,3 +1,4 @@
+/* SettingsScreen.kt */
 package com.schbrongx.espressotimer.ui.screens
 
 import androidx.compose.foundation.border
@@ -10,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
@@ -33,7 +33,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.schbrongx.espressotimer.AVAILABLE_LANGUAGES
 import com.schbrongx.espressotimer.DEFAULT_LANGUAGE
+import com.schbrongx.espressotimer.DEFAULT_SIGNAL_ENABLED
 import com.schbrongx.espressotimer.DEFAULT_TARGET_TIME
+import com.schbrongx.espressotimer.DEFAULT_USE_AI_TO_START_TIMER
 import com.schbrongx.espressotimer.EspressoTimerMaterialTheme
 import com.schbrongx.espressotimer.ui.components.LanguageDropdown
 import com.schbrongx.espressotimer.ui.components.NumberStepper
@@ -47,12 +49,14 @@ fun SettingsScreen(
     initialTargetTime: Float,
     initialLanguage: String,
     initialSignalEnabled: Boolean,
+    initialUseAIToStartTimer: Boolean,
     onClose: () -> Unit,
-    onSave: (Float, String, Boolean) -> Unit
+    onSave: (Float, String, Boolean, Boolean) -> Unit
 ) {
     var targetTime by remember { mutableFloatStateOf(initialTargetTime) }
     var language by remember { mutableStateOf(initialLanguage) }
     var signalEnabled by remember { mutableStateOf(initialSignalEnabled) }
+    val useAIToStartTimer by remember { mutableStateOf(initialUseAIToStartTimer) }
 
     Scaffold(
         topBar = {
@@ -117,7 +121,7 @@ fun SettingsScreen(
             // Save Button
             Button(
                 onClick = {
-                    onSave(targetTime, language, signalEnabled)
+                    onSave(targetTime, language, signalEnabled, useAIToStartTimer)
                     onClose()
                 },
                 modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -135,10 +139,11 @@ fun SettingsScreenPreview() {
         SettingsScreen(
             onNavigateBack = {},
             onClose = {},
-            onSave = { _, _, _ -> },
+            onSave = { _, _, _, _ -> },
             initialTargetTime = DEFAULT_TARGET_TIME,
             initialLanguage = DEFAULT_LANGUAGE,
-            initialSignalEnabled = true,
+            initialSignalEnabled = DEFAULT_SIGNAL_ENABLED,
+            initialUseAIToStartTimer = DEFAULT_USE_AI_TO_START_TIMER
         )
     }
 }

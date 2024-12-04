@@ -22,4 +22,5 @@
     <string name="train_your_machine">Train your Espresso Machine sound</string>
     <string name="start_training">Start Training</string>
     <string name="stop_training">Stop Training</string>
+    <string name="use_ai_to_start_timer">Use AI to start timer</string>
 </resources>

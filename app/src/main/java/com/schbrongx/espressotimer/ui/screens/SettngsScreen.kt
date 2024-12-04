@@ -1,5 +1,7 @@
+/* SettingsScreen.kt */
 package com.schbrongx.espressotimer.ui.screens
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,7 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
@@ -31,7 +33,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.schbrongx.espressotimer.AVAILABLE_LANGUAGES
 import com.schbrongx.espressotimer.DEFAULT_LANGUAGE
+import com.schbrongx.espressotimer.DEFAULT_SIGNAL_ENABLED
 import com.schbrongx.espressotimer.DEFAULT_TARGET_TIME
+import com.schbrongx.espressotimer.DEFAULT_USE_AI_TO_START_TIMER
 import com.schbrongx.espressotimer.EspressoTimerMaterialTheme
 import com.schbrongx.espressotimer.ui.components.LanguageDropdown
 import com.schbrongx.espressotimer.ui.components.NumberStepper
@@ -41,24 +45,28 @@ import com.schbrongx.espressotimer.utils.localizedStringResource
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    onNavigateBack: () -> Unit,
     initialTargetTime: Float,
     initialLanguage: String,
     initialSignalEnabled: Boolean,
+    initialUseAIToStartTimer: Boolean,
     onClose: () -> Unit,
-    onSave: (Float, String, Boolean) -> Unit
+    onSave: (Float, String, Boolean, Boolean) -> Unit
 ) {
     var targetTime by remember { mutableFloatStateOf(initialTargetTime) }
     var language by remember { mutableStateOf(initialLanguage) }
     var signalEnabled by remember { mutableStateOf(initialSignalEnabled) }
+    val useAIToStartTimer by remember { mutableStateOf(initialUseAIToStartTimer) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(localizedStringResource(language, R.string.settings)) },
-                actions = {
-                    // Close button in the app bar
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.Filled.Close, contentDescription = localizedStringResource(language, R.string.close))
+                modifier = Modifier
+                    .border(width = 1.dp, color = MaterialTheme.colorScheme.primary),
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = localizedStringResource(language, R.string.back))
                     }
                 }
             )
@@ -113,7 +121,7 @@ fun SettingsScreen(
             // Save Button
             Button(
                 onClick = {
-                    onSave(targetTime, language, signalEnabled)
+                    onSave(targetTime, language, signalEnabled, useAIToStartTimer)
                     onClose()
                 },
                 modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -129,11 +137,13 @@ fun SettingsScreen(
 fun SettingsScreenPreview() {
     EspressoTimerMaterialTheme {
         SettingsScreen(
+            onNavigateBack = {},
             onClose = {},
-            onSave = { _, _, _ -> },
+            onSave = { _, _, _, _ -> },
             initialTargetTime = DEFAULT_TARGET_TIME,
             initialLanguage = DEFAULT_LANGUAGE,
-            initialSignalEnabled = true,
+            initialSignalEnabled = DEFAULT_SIGNAL_ENABLED,
+            initialUseAIToStartTimer = DEFAULT_USE_AI_TO_START_TIMER
         )
     }
 }

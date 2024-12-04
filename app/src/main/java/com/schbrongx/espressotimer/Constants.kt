@@ -1,3 +1,4 @@
+/* Constants.kt */
 package com.schbrongx.espressotimer
 
 // All languages available for the app
@@ -11,3 +12,6 @@ const val DEFAULT_TARGET_TIME = 21.5f
 
 // Default setting for acoustic signals
 const val DEFAULT_SIGNAL_ENABLED = true
+
+// Default setting for using AI to start the timer
+const val DEFAULT_USE_AI_TO_START_TIMER = false

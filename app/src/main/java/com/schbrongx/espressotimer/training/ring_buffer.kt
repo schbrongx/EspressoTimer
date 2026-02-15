@@ -6,6 +6,9 @@ class TimestampedRingBuffer(
   private val sampleRateHz: Int,
   private val retentionSeconds: Double,
 ) {
+  private val seamToleranceSamples = 2
+  private val seamToleranceSeconds = seamToleranceSamples.toDouble() / sampleRateHz.toDouble()
+
   private data class Chunk(
     val startMonotonicSec: Double,
     val samples: ShortArray,
@@ -69,7 +72,7 @@ class TimestampedRingBuffer(
     }
     val earliest = chunks.first().startMonotonicSec
     val latest = chunks.last().endMonotonicSec
-    if (windowStartSec < earliest || windowEndSec > latest) {
+    if (windowStartSec < (earliest - seamToleranceSeconds) || windowEndSec > (latest + seamToleranceSeconds)) {
       return null
     }
 
@@ -100,7 +103,7 @@ class TimestampedRingBuffer(
     }
 
     val missingSamples = filled.count { isFilled -> !isFilled }
-    return if (missingSamples == 0) {
+    return if (missingSamples <= seamToleranceSamples) {
       output
     } else {
       null
@@ -114,7 +117,7 @@ class TimestampedRingBuffer(
     }
     val earliest = chunks.first().startMonotonicSec
     val latest = chunks.last().endMonotonicSec
-    return windowStartSec >= earliest && windowEndSec <= latest
+    return windowStartSec >= (earliest - seamToleranceSeconds) && windowEndSec <= (latest + seamToleranceSeconds)
   }
 
   private fun trim() {

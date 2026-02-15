@@ -171,7 +171,13 @@ class TrainingSessionManager(
         return false
       }
 
-      val samples = ringBuffer.extractWindow(startSec, endSec) ?: return false
+      val samples = ringBuffer.extractWindow(startSec, endSec)
+      if (samples == null) {
+        uiStateFlow.value = uiStateFlow.value.copy(
+          infoMessage = "Background sample capture failed: audio window had a timing seam. Try again in a moment."
+        )
+        return false
+      }
       persistSample(
         profile = activeProfile,
         label = SampleLabel.Negative,
@@ -277,7 +283,7 @@ class TrainingSessionManager(
       if (samples == null) {
         iterator.remove()
         uiStateFlow.value = uiStateFlow.value.copy(
-          infoMessage = "Skipped one tap: positive window not fully available."
+          infoMessage = "Skipped one tap: positive window unavailable or had a timing seam."
         )
         continue
       }

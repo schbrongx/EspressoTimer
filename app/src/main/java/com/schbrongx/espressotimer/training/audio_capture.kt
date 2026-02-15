@@ -40,6 +40,7 @@ class AndroidAudioBackend(private val context: Context) : AudioBackend {
   private val statusFlow = MutableStateFlow<MicrophoneStatus>(MicrophoneStatus.Ready)
   private var recorder: AudioRecord? = null
   private var readJob: Job? = null
+  private var nextChunkStartSec: Double? = null
 
   override val status: StateFlow<MicrophoneStatus> = statusFlow
   override val deviceInfo: String = "AndroidAudioRecord/${TrainingConfig.sampleRateHz}Hz/mono/pcm16"
@@ -47,6 +48,7 @@ class AndroidAudioBackend(private val context: Context) : AudioBackend {
   @SuppressLint("MissingPermission")
   override fun start(onFrames: AudioFramesCallback): Boolean {
     stop()
+    nextChunkStartSec = null
 
     if (!hasRecordPermission()) {
       statusFlow.value = MicrophoneStatus.Error(message = "Microphone permission not granted.")
@@ -93,10 +95,14 @@ class AndroidAudioBackend(private val context: Context) : AudioBackend {
           val readCount = record.read(temp, 0, temp.size)
           when {
             readCount > 0 -> {
-              val endTimeSec = SystemClock.elapsedRealtimeNanos() / 1_000_000_000.0
               val durationSec = readCount.toDouble() / TrainingConfig.sampleRateHz.toDouble()
-              val startTimeSec = endTimeSec - durationSec
-              onFrames(temp.copyOf(readCount), startTimeSec, endTimeSec)
+              val chunkStartSec = nextChunkStartSec ?: run {
+                val nowSec = SystemClock.elapsedRealtimeNanos() / 1_000_000_000.0
+                (nowSec - durationSec).coerceAtLeast(0.0)
+              }
+              val chunkEndSec = chunkStartSec + durationSec
+              onFrames(temp.copyOf(readCount), chunkStartSec, chunkEndSec)
+              nextChunkStartSec = chunkEndSec
             }
 
             readCount == AudioRecord.ERROR_INVALID_OPERATION -> {
@@ -120,6 +126,7 @@ class AndroidAudioBackend(private val context: Context) : AudioBackend {
   override fun stop() {
     readJob?.cancel()
     readJob = null
+    nextChunkStartSec = null
     recorder?.let { record ->
       runCatching {
         if (record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {

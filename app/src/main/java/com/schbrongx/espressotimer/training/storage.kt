@@ -8,6 +8,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.format.DateTimeFormatter
@@ -35,6 +36,14 @@ data class SavedSample(
   val wavFile: File,
   val metadataFile: File,
   val sha256: String,
+  val sampleId: String,
+)
+
+data class LearnedArtifactMetadata(
+  val learnedDatasetRevision: Long?,
+  val learnedDatasetHash: String?,
+  val learnedAtIso: String?,
+  val qualityLabel: LearningQualityLabel?,
 )
 
 class TrainingStorage(private val dataRoot: File) {
@@ -43,7 +52,13 @@ class TrainingStorage(private val dataRoot: File) {
   companion object {
     private const val Tag = "TrainingStorage"
     private const val ProfilesFileName = "profiles.json"
-    private const val IndexFileName = "index.jsonl"
+    private const val EventsFileName = "events.jsonl"
+    private const val LegacyIndexFileName = "index.jsonl"
+    private const val LearnedDirName = "learned"
+    private const val LearnedModelFileName = "model.json"
+    private const val LearnedReportFileName = "report.json"
+    private const val LearnedAtFileName = "learned_at.txt"
+    private val EmptyDatasetHash = sha256OfStrings(emptyList())
   }
 
   private val trainingRoot: File = File(dataRoot, "training")
@@ -71,16 +86,24 @@ class TrainingStorage(private val dataRoot: File) {
 
   fun getNegativesDir(profileId: String): File = File(getProfileTrainingDir(profileId), SampleLabel.Negative.folderName)
 
-  fun getIndexFile(profileId: String): File = File(getProfileTrainingDir(profileId), IndexFileName)
+  fun getEventsFile(profileId: String): File = File(getProfileTrainingDir(profileId), EventsFileName)
+
+  // Keep compatibility with existing callers that still reference an index file.
+  fun getIndexFile(profileId: String): File = getEventsFile(profileId)
+
+  fun getLearnedDir(profileId: String): File = File(getProfileTrainingDir(profileId), LearnedDirName)
+
+  fun getLearnedModelFile(profileId: String): File = File(getLearnedDir(profileId), LearnedModelFileName)
+
+  fun getLearnedReportFile(profileId: String): File = File(getLearnedDir(profileId), LearnedReportFileName)
+
+  fun getLearnedAtFile(profileId: String): File = File(getLearnedDir(profileId), LearnedAtFileName)
 
   fun ensureProfileLayout(profileId: String) {
     getPositivesDir(profileId).mkdirs()
     getNegativesDir(profileId).mkdirs()
-    val indexFile = getIndexFile(profileId)
-    if (!indexFile.exists()) {
-      indexFile.parentFile?.mkdirs()
-      indexFile.createNewFile()
-    }
+    getLearnedDir(profileId).mkdirs()
+    ensureEventsFileWithMigration(profileId)
   }
 
   @Synchronized
@@ -130,6 +153,8 @@ class TrainingStorage(private val dataRoot: File) {
       put("tap_time_monotonic", request.tapTimeMonotonicSec)
       put("source_device_info", request.sourceDeviceInfo ?: JSONObject.NULL)
       put("sha256", sha256)
+      put("sample_id", sampleId)
+      put("saved_at", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
       if (request.label == SampleLabel.Positive) {
         put("pre_roll_s", request.windowPreSeconds ?: TrainingConfig.positivePreRollSeconds)
         put("post_roll_s", request.windowPostSeconds ?: TrainingConfig.positivePostRollSeconds)
@@ -147,25 +172,31 @@ class TrainingStorage(private val dataRoot: File) {
       put("wav_file", wavFile.absolutePath)
       put("metadata_file", metadataFile.absolutePath)
       put("sha256", sha256)
+      put("sample_id", sampleId)
       put("tap_time_wall", request.tapTimeWallIso)
       put("tap_time_monotonic", request.tapTimeMonotonicSec)
     }
-    appendIndexEntry(request.profileId, indexEntry)
+    appendEventEntry(request.profileId, indexEntry)
 
-    return SavedSample(wavFile = wavFile, metadataFile = metadataFile, sha256 = sha256)
+    return SavedSample(wavFile = wavFile, metadataFile = metadataFile, sha256 = sha256, sampleId = sampleId)
   }
 
   @Synchronized
-  fun appendIndexEntry(profileId: String, entry: JSONObject) {
+  fun appendEventEntry(profileId: String, entry: JSONObject) {
     ensureProfileLayout(profileId)
-    val indexFile = getIndexFile(profileId)
-    val existingContent = if (indexFile.exists()) indexFile.readText() else ""
+    val eventsFile = getEventsFile(profileId)
+    val existingContent = if (eventsFile.exists()) eventsFile.readText() else ""
     val updatedContent = buildString {
       append(existingContent)
       append(entry.toString())
       appendLine()
     }
-    atomicWriteText(indexFile, updatedContent)
+    atomicWriteText(eventsFile, updatedContent)
+  }
+
+  @Synchronized
+  fun appendIndexEntry(profileId: String, entry: JSONObject) {
+    appendEventEntry(profileId, entry)
   }
 
   fun countSamples(profileId: String, label: SampleLabel): Int {
@@ -186,6 +217,84 @@ class TrainingStorage(private val dataRoot: File) {
       ?: emptyList()
   }
 
+  fun computeDatasetHash(profileId: String): String {
+    ensureProfileLayout(profileId)
+    val eventsFile = getEventsFile(profileId)
+    if (!eventsFile.exists()) {
+      return EmptyDatasetHash
+    }
+    val rows = mutableListOf<String>()
+    eventsFile.forEachLine(StandardCharsets.UTF_8) { line ->
+      val trimmed = line.trim()
+      if (trimmed.isBlank()) {
+        return@forEachLine
+      }
+      val event = runCatching { JSONObject(trimmed) }.getOrNull() ?: return@forEachLine
+      val sampleId = event.optString("sample_id")
+      val label = event.optString("label")
+      val sha = event.optString("sha256")
+      val tapWall = event.optString("tap_time_wall")
+      rows += listOf(sampleId, label, sha, tapWall).joinToString("|")
+    }
+    if (rows.isEmpty()) {
+      return EmptyDatasetHash
+    }
+    return sha256OfStrings(rows.sorted())
+  }
+
+  fun hasLearnedArtifacts(profileId: String): Boolean {
+    val model = getLearnedModelFile(profileId)
+    val report = getLearnedReportFile(profileId)
+    val learnedAt = getLearnedAtFile(profileId)
+    return model.exists() || report.exists() || learnedAt.exists()
+  }
+
+  fun readLearnedArtifactMetadata(profileId: String): LearnedArtifactMetadata? {
+    if (!hasLearnedArtifacts(profileId)) {
+      return null
+    }
+    val modelJson = runCatching { JSONObject(getLearnedModelFile(profileId).readText()) }.getOrNull()
+    val reportJson = runCatching { JSONObject(getLearnedReportFile(profileId).readText()) }.getOrNull()
+    val learnedRevision = if (modelJson != null && modelJson.has("dataset_revision") && !modelJson.isNull("dataset_revision")) {
+      modelJson.optLong("dataset_revision")
+    } else {
+      null
+    }
+    val learnedAtIso = runCatching { getLearnedAtFile(profileId).readText().trim() }.getOrNull()
+      ?.ifBlank { null }
+      ?: modelJson?.optString("created_at", "")?.ifBlank { null }
+      ?: reportJson?.optString("created_at", "")?.ifBlank { null }
+    val quality = LearningQualityLabel.fromValue(reportJson?.optString("quality_label", ""))
+    return LearnedArtifactMetadata(
+      learnedDatasetRevision = learnedRevision,
+      learnedDatasetHash = modelJson?.optString("dataset_hash", "")?.ifBlank { null },
+      learnedAtIso = learnedAtIso,
+      qualityLabel = quality,
+    )
+  }
+
+  @Synchronized
+  fun writeLearnedArtifacts(
+    profileId: String,
+    modelJson: JSONObject,
+    reportJson: JSONObject,
+    learnedAtIso: String,
+  ) {
+    ensureProfileLayout(profileId)
+    atomicWriteText(getLearnedModelFile(profileId), modelJson.toString(2))
+    atomicWriteText(getLearnedReportFile(profileId), reportJson.toString(2))
+    atomicWriteText(getLearnedAtFile(profileId), learnedAtIso.trim())
+  }
+
+  @Synchronized
+  fun clearLearnedArtifacts(profileId: String) {
+    val learnedDir = getLearnedDir(profileId)
+    if (learnedDir.exists() && !learnedDir.deleteRecursively()) {
+      Log.w(Tag, "Failed to delete learned artifacts: ${learnedDir.absolutePath}")
+    }
+    learnedDir.mkdirs()
+  }
+
   @Synchronized
   fun resetProfileTrainingData(profileId: String) {
     val profileDir = getProfileTrainingDir(profileId)
@@ -200,6 +309,41 @@ class TrainingStorage(private val dataRoot: File) {
     val profileDir = getProfileTrainingDir(profileId)
     if (profileDir.exists() && !profileDir.deleteRecursively()) {
       Log.w(Tag, "Failed to delete profile directory: ${profileDir.absolutePath}")
+    }
+  }
+
+  private fun ensureEventsFileWithMigration(profileId: String) {
+    val profileDir = getProfileTrainingDir(profileId)
+    profileDir.mkdirs()
+    val eventsFile = getEventsFile(profileId)
+    val legacyIndexFile = File(profileDir, LegacyIndexFileName)
+
+    if (legacyIndexFile.exists()) {
+      val legacyContent = runCatching { legacyIndexFile.readText() }.getOrDefault("")
+      if (!eventsFile.exists()) {
+        atomicWriteText(eventsFile, legacyContent)
+      } else if (legacyContent.isNotBlank()) {
+        val existing = runCatching { eventsFile.readText() }.getOrDefault("")
+        val merged = buildString {
+          append(existing)
+          if (existing.isNotEmpty() && !existing.endsWith("\n")) {
+            appendLine()
+          }
+          append(legacyContent)
+          if (!legacyContent.endsWith("\n")) {
+            appendLine()
+          }
+        }
+        atomicWriteText(eventsFile, merged)
+      }
+      if (!legacyIndexFile.delete()) {
+        Log.w(Tag, "Could not remove legacy index file: ${legacyIndexFile.absolutePath}")
+      }
+    }
+
+    if (!eventsFile.exists()) {
+      eventsFile.parentFile?.mkdirs()
+      eventsFile.createNewFile()
     }
   }
 
@@ -331,6 +475,15 @@ fun sha256Hex(file: File): String {
       }
       digest.update(buffer, 0, read)
     }
+  }
+  return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
+}
+
+fun sha256OfStrings(values: List<String>): String {
+  val digest = MessageDigest.getInstance("SHA-256")
+  values.forEach { value ->
+    digest.update(value.toByteArray(StandardCharsets.UTF_8))
+    digest.update('\n'.code.toByte())
   }
   return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
 }

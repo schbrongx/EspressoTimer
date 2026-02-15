@@ -6,6 +6,25 @@ import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
+enum class LearningQualityLabel(val value: String) {
+  Good("Good"),
+  OK("OK"),
+  Weak("Weak");
+
+  companion object {
+    fun fromValue(raw: String?): LearningQualityLabel? {
+      return values().firstOrNull { quality -> quality.value.equals(raw?.trim(), ignoreCase = true) }
+    }
+  }
+}
+
+enum class ProfileLearningStatus {
+  NotReady,
+  Ready,
+  Learned,
+  Outdated,
+}
+
 data class TrainingProfile(
   val id: String,
   val name: String,
@@ -16,12 +35,37 @@ data class TrainingProfile(
   val totalRecordedSeconds: Double,
   val lastEventWallIso: String?,
   val datasetRevision: Long,
+  val datasetHash: String,
+  val learnedDatasetRevision: Long?,
+  val learnedDatasetHash: String?,
+  val learnedAtIso: String?,
+  val learnedQualityLabel: LearningQualityLabel?,
 ) {
   val hasData: Boolean
     get() = positivesCount > 0 || negativesCount > 0
 
   val isDatasetGuidanceReady: Boolean
     get() = positivesCount >= TrainingConfig.minPositivesReady && negativesCount >= TrainingConfig.minNegativesReady
+
+  val learningStatus: ProfileLearningStatus
+    get() {
+      if (!isDatasetGuidanceReady) {
+        return ProfileLearningStatus.NotReady
+      }
+      if (!hasLearnedArtifactReference) {
+        return ProfileLearningStatus.Ready
+      }
+      val revisionMatches = learnedDatasetRevision != null && learnedDatasetRevision == datasetRevision
+      val hashMatches = !learnedDatasetHash.isNullOrBlank() && learnedDatasetHash == datasetHash
+      return if (revisionMatches && hashMatches) {
+        ProfileLearningStatus.Learned
+      } else {
+        ProfileLearningStatus.Outdated
+      }
+    }
+
+  val hasLearnedArtifactReference: Boolean
+    get() = learnedDatasetRevision != null || !learnedDatasetHash.isNullOrBlank() || !learnedAtIso.isNullOrBlank()
 }
 
 data class ProfilesState(
@@ -49,8 +93,10 @@ class ProfilesRepository(private val storage: TrainingStorage) {
     synchronized(lock) {
       val now = nowIso()
       val state = getState()
+      val profileId = UUID.randomUUID().toString()
+      storage.ensureProfileLayout(profileId)
       val profile = TrainingProfile(
-        id = UUID.randomUUID().toString(),
+        id = profileId,
         name = name.trim(),
         createdAtIso = now,
         updatedAtIso = now,
@@ -59,8 +105,12 @@ class ProfilesRepository(private val storage: TrainingStorage) {
         totalRecordedSeconds = 0.0,
         lastEventWallIso = null,
         datasetRevision = 0L,
+        datasetHash = storage.computeDatasetHash(profileId),
+        learnedDatasetRevision = null,
+        learnedDatasetHash = null,
+        learnedAtIso = null,
+        learnedQualityLabel = null,
       )
-      storage.ensureProfileLayout(profile.id)
       val nextState = state.copy(
         activeProfileId = state.activeProfileId ?: profile.id,
         profiles = (state.profiles + profile).sortedBy { it.createdAtIso }
@@ -119,6 +169,7 @@ class ProfilesRepository(private val storage: TrainingStorage) {
     synchronized(lock) {
       val state = getState()
       storage.resetProfileTrainingData(profileId)
+      val resetDatasetHash = storage.computeDatasetHash(profileId)
       val nextProfiles = state.profiles.map { profile ->
         if (profile.id == profileId) {
           profile.copy(
@@ -127,6 +178,11 @@ class ProfilesRepository(private val storage: TrainingStorage) {
             totalRecordedSeconds = 0.0,
             lastEventWallIso = null,
             datasetRevision = profile.datasetRevision + 1L,
+            datasetHash = resetDatasetHash,
+            learnedDatasetRevision = null,
+            learnedDatasetHash = null,
+            learnedAtIso = null,
+            learnedQualityLabel = null,
             updatedAtIso = nowIso(),
           )
         } else {
@@ -144,6 +200,8 @@ class ProfilesRepository(private val storage: TrainingStorage) {
     label: SampleLabel,
     durationSeconds: Double,
     eventTimeWallIso: String,
+    sampleSha256: String? = null,
+    sampleId: String? = null,
   ): ProfilesState {
     synchronized(lock) {
       val state = getState()
@@ -151,12 +209,50 @@ class ProfilesRepository(private val storage: TrainingStorage) {
         if (profile.id == profileId) {
           val updatedPositives = profile.positivesCount + if (label == SampleLabel.Positive) 1 else 0
           val updatedNegatives = profile.negativesCount + if (label == SampleLabel.Negative) 1 else 0
+          val updatedDatasetHash = sampleSha256?.let { sha ->
+            updateDatasetHash(
+              previousHash = profile.datasetHash,
+              label = label,
+              sampleSha = sha,
+              sampleId = sampleId,
+              tapTimeWallIso = eventTimeWallIso,
+            )
+          } ?: storage.computeDatasetHash(profile.id)
           profile.copy(
             positivesCount = updatedPositives,
             negativesCount = updatedNegatives,
             totalRecordedSeconds = profile.totalRecordedSeconds + durationSeconds.coerceAtLeast(0.0),
             lastEventWallIso = eventTimeWallIso,
             datasetRevision = profile.datasetRevision + 1L,
+            datasetHash = updatedDatasetHash,
+            updatedAtIso = nowIso(),
+          )
+        } else {
+          profile
+        }
+      }
+      val nextState = state.copy(profiles = nextProfiles)
+      persist(nextState)
+      return nextState
+    }
+  }
+
+  fun markProfileLearned(
+    profileId: String,
+    learnedDatasetRevision: Long,
+    learnedDatasetHash: String,
+    learnedAtIso: String,
+    qualityLabel: LearningQualityLabel,
+  ): ProfilesState {
+    synchronized(lock) {
+      val state = getState()
+      val nextProfiles = state.profiles.map { profile ->
+        if (profile.id == profileId) {
+          profile.copy(
+            learnedDatasetRevision = learnedDatasetRevision,
+            learnedDatasetHash = learnedDatasetHash,
+            learnedAtIso = learnedAtIso,
+            learnedQualityLabel = qualityLabel,
             updatedAtIso = nowIso(),
           )
         } else {
@@ -200,7 +296,8 @@ class ProfilesRepository(private val storage: TrainingStorage) {
       if (profileId.isBlank()) {
         continue
       }
-      profiles += TrainingProfile(
+      storage.ensureProfileLayout(profileId)
+      val parsedProfile = TrainingProfile(
         id = profileId,
         name = profileJson.optString("name"),
         createdAtIso = profileJson.optString("created_at"),
@@ -210,8 +307,13 @@ class ProfilesRepository(private val storage: TrainingStorage) {
         totalRecordedSeconds = profileJson.optDouble("total_recorded_seconds", 0.0),
         lastEventWallIso = profileJson.optString("last_event_wall", "").ifBlank { null },
         datasetRevision = profileJson.optLong("dataset_revision"),
+        datasetHash = profileJson.optString("dataset_hash", "").ifBlank { storage.computeDatasetHash(profileId) },
+        learnedDatasetRevision = profileJson.optNullableLong("learned_dataset_revision"),
+        learnedDatasetHash = profileJson.optString("learned_dataset_hash", "").ifBlank { null },
+        learnedAtIso = profileJson.optString("learned_at", "").ifBlank { null },
+        learnedQualityLabel = LearningQualityLabel.fromValue(profileJson.optString("learned_quality", "")),
       )
-      storage.ensureProfileLayout(profileId)
+      profiles += hydrateLearnedMetadata(parsedProfile)
     }
 
     val finalActive = when {
@@ -219,6 +321,24 @@ class ProfilesRepository(private val storage: TrainingStorage) {
       else -> profiles.firstOrNull()?.id
     }
     return ProfilesState(activeProfileId = finalActive, profiles = profiles)
+  }
+
+  private fun hydrateLearnedMetadata(profile: TrainingProfile): TrainingProfile {
+    val artifactMetadata = storage.readLearnedArtifactMetadata(profile.id)
+    if (artifactMetadata == null) {
+      return profile.copy(
+        learnedDatasetRevision = null,
+        learnedDatasetHash = null,
+        learnedAtIso = null,
+        learnedQualityLabel = null,
+      )
+    }
+    return profile.copy(
+      learnedDatasetRevision = artifactMetadata.learnedDatasetRevision ?: profile.learnedDatasetRevision,
+      learnedDatasetHash = artifactMetadata.learnedDatasetHash ?: profile.learnedDatasetHash,
+      learnedAtIso = artifactMetadata.learnedAtIso ?: profile.learnedAtIso,
+      learnedQualityLabel = artifactMetadata.qualityLabel ?: profile.learnedQualityLabel,
+    )
   }
 }
 
@@ -233,8 +353,38 @@ private fun TrainingProfile.toJson(): JSONObject {
     put("total_recorded_seconds", totalRecordedSeconds)
     put("last_event_wall", lastEventWallIso ?: JSONObject.NULL)
     put("dataset_revision", datasetRevision)
+    put("dataset_hash", datasetHash)
+    put("learned_dataset_revision", learnedDatasetRevision ?: JSONObject.NULL)
+    put("learned_dataset_hash", learnedDatasetHash ?: JSONObject.NULL)
+    put("learned_at", learnedAtIso ?: JSONObject.NULL)
+    put("learned_quality", learnedQualityLabel?.value ?: JSONObject.NULL)
   }
 }
 
-private fun nowIso(): String = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
+private fun JSONObject.optNullableLong(key: String): Long? {
+  return if (has(key) && !isNull(key)) {
+    optLong(key)
+  } else {
+    null
+  }
+}
 
+private fun updateDatasetHash(
+  previousHash: String,
+  label: SampleLabel,
+  sampleSha: String,
+  sampleId: String?,
+  tapTimeWallIso: String,
+): String {
+  return sha256OfStrings(
+    listOf(
+      previousHash,
+      label.value,
+      sampleSha,
+      sampleId ?: "",
+      tapTimeWallIso,
+    )
+  )
+}
+
+private fun nowIso(): String = DateTimeFormatter.ISO_INSTANT.format(Instant.now())

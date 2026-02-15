@@ -1,6 +1,7 @@
 package com.schbrongx.espressotimer.training
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioFormat
@@ -43,6 +44,7 @@ class AndroidAudioBackend(private val context: Context) : AudioBackend {
   override val status: StateFlow<MicrophoneStatus> = statusFlow
   override val deviceInfo: String = "AndroidAudioRecord/${TrainingConfig.sampleRateHz}Hz/mono/pcm16"
 
+  @SuppressLint("MissingPermission")
   override fun start(onFrames: AudioFramesCallback): Boolean {
     stop()
 

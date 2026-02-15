@@ -43,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,13 +59,19 @@ import com.schbrongx.espressotimer.DEFAULT_LANGUAGE
 import com.schbrongx.espressotimer.EspressoTimerMaterialTheme
 import com.schbrongx.espressotimer.R
 import com.schbrongx.espressotimer.training.AndroidAudioBackend
+import com.schbrongx.espressotimer.training.LearnedTriggerComputationResult
+import com.schbrongx.espressotimer.training.LearnedTriggerLearner
 import com.schbrongx.espressotimer.training.MicrophoneStatus
+import com.schbrongx.espressotimer.training.ProfileLearningStatus
 import com.schbrongx.espressotimer.training.ProfilesRepository
 import com.schbrongx.espressotimer.training.TrainingProfile
 import com.schbrongx.espressotimer.training.TrainingSessionManager
 import com.schbrongx.espressotimer.training.TrainingSessionUiState
 import com.schbrongx.espressotimer.training.TrainingStorage
 import com.schbrongx.espressotimer.utils.localizedStringResource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class TrainingRoute {
   Profiles,
@@ -72,17 +79,23 @@ private enum class TrainingRoute {
 }
 
 private enum class PrimaryProfileAction {
-  StartTraining,
-  ContinueTraining
+  StartOrContinueTraining,
+  ComputeLearnedTrigger,
+  RecomputeLearnedTrigger,
+  LearnedUpToDate,
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrainingScreen(onNavigateBack: () -> Unit, language: String) {
   val context = LocalContext.current
+  val coroutineScope = rememberCoroutineScope()
+  val learnedSuccessText = localizedStringResource(language, R.string.training_learned_success)
+  val learnedUpToDateText = localizedStringResource(language, R.string.training_learned_up_to_date)
 
   val storage = remember { TrainingStorage(context.applicationContext) }
   val profilesRepository = remember { ProfilesRepository(storage) }
+  val learner = remember { LearnedTriggerLearner(storage, profilesRepository) }
   val sessionManager = remember {
     TrainingSessionManager(
       storage = storage,
@@ -104,6 +117,8 @@ fun TrainingScreen(onNavigateBack: () -> Unit, language: String) {
   var renameProfile by remember { mutableStateOf<TrainingProfile?>(null) }
   var deleteProfile by remember { mutableStateOf<TrainingProfile?>(null) }
   var resetProfile by remember { mutableStateOf<TrainingProfile?>(null) }
+  var learningMessage by remember { mutableStateOf<String?>(null) }
+  var computingProfileId by remember { mutableStateOf<String?>(null) }
 
   fun refreshProfiles() {
     profilesState = profilesRepository.getState()
@@ -177,6 +192,14 @@ fun TrainingScreen(onNavigateBack: () -> Unit, language: String) {
           .padding(innerPadding)
           .padding(horizontal = 16.dp, vertical = 12.dp)
       ) {
+        if (!learningMessage.isNullOrBlank()) {
+          Text(
+            text = learningMessage ?: "",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+          )
+          Spacer(modifier = Modifier.height(8.dp))
+        }
         Text(
           text = localizedStringResource(language, R.string.training_guidance_minimum),
           style = MaterialTheme.typography.bodySmall,
@@ -213,11 +236,51 @@ fun TrainingScreen(onNavigateBack: () -> Unit, language: String) {
                 onRename = { renameProfile = profile },
                 onDelete = { deleteProfile = profile },
                 onReset = { resetProfile = profile },
-                onPrimaryAction = {
+                isPrimaryActionRunning = computingProfileId == profile.id,
+                onStartTraining = {
                   profilesRepository.selectActiveProfile(profile.id)
                   refreshProfiles()
                   selectedSessionProfileId = profile.id
                   route = TrainingRoute.Session
+                },
+                onPrimaryAction = {
+                  when (primaryAction) {
+                    PrimaryProfileAction.StartOrContinueTraining -> {
+                      profilesRepository.selectActiveProfile(profile.id)
+                      refreshProfiles()
+                      selectedSessionProfileId = profile.id
+                      route = TrainingRoute.Session
+                    }
+
+                    PrimaryProfileAction.ComputeLearnedTrigger,
+                    PrimaryProfileAction.RecomputeLearnedTrigger -> {
+                      if (computingProfileId != null) {
+                        return@ProfileCard
+                      }
+                      computingProfileId = profile.id
+                      learningMessage = null
+                      coroutineScope.launch {
+                        val result = withContext(Dispatchers.Default) {
+                          learner.computeLearnedTrigger(profile.id)
+                        }
+                        refreshProfiles()
+                        computingProfileId = null
+                        learningMessage = when (result) {
+                          is LearnedTriggerComputationResult.Success -> {
+                            learnedSuccessText +
+                                " (${result.summary.qualityLabel.value}, F1=${String.format("%.3f", result.summary.metrics.f1)})"
+                          }
+
+                          is LearnedTriggerComputationResult.Blocked -> result.reason
+                          is LearnedTriggerComputationResult.Failure -> result.reason
+                        }
+                      }
+                    }
+
+                    PrimaryProfileAction.LearnedUpToDate -> {
+                      learningMessage = learnedUpToDateText
+                    }
+                  }
                 }
               )
             }
@@ -300,10 +363,12 @@ private fun ProfileCard(
   profile: TrainingProfile,
   isActive: Boolean,
   primaryAction: PrimaryProfileAction,
+  isPrimaryActionRunning: Boolean,
   onSelect: () -> Unit,
   onRename: () -> Unit,
   onDelete: () -> Unit,
   onReset: () -> Unit,
+  onStartTraining: () -> Unit,
   onPrimaryAction: () -> Unit,
 ) {
   ElevatedCard(modifier = Modifier.fillMaxWidth()) {
@@ -319,13 +384,29 @@ private fun ProfileCard(
         verticalAlignment = Alignment.CenterVertically
       ) {
         Text(text = profile.name, style = MaterialTheme.typography.titleMedium)
-        if (isActive) {
-          StatusBadge(text = localizedStringResource(language, R.string.training_active), color = MaterialTheme.colorScheme.primary)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+          if (isActive) {
+            StatusBadge(text = localizedStringResource(language, R.string.training_active), color = MaterialTheme.colorScheme.primary)
+          }
+          val (statusText, statusColor) = profileStatusBadge(language, profile.learningStatus)
+          StatusBadge(text = statusText, color = statusColor)
         }
       }
 
       Text(text = "${localizedStringResource(language, R.string.training_positives)}: ${profile.positivesCount}")
       Text(text = "${localizedStringResource(language, R.string.training_negatives)}: ${profile.negativesCount}")
+      if (!profile.learnedAtIso.isNullOrBlank()) {
+        Text(
+          text = "${localizedStringResource(language, R.string.training_last_computed)}: ${profile.learnedAtIso}",
+          style = MaterialTheme.typography.bodySmall
+        )
+      }
+      if (profile.learnedQualityLabel != null) {
+        Text(
+          text = "${localizedStringResource(language, R.string.training_quality)}: ${profile.learnedQualityLabel.value}",
+          style = MaterialTheme.typography.bodySmall
+        )
+      }
       Text(
         text = "${localizedStringResource(language, R.string.training_total_recorded)}: ${formatSeconds(profile.totalRecordedSeconds)}",
         style = MaterialTheme.typography.bodySmall
@@ -339,6 +420,17 @@ private fun ProfileCard(
         if (!isActive) {
           TextButton(onClick = onSelect) {
             Text(text = localizedStringResource(language, R.string.training_set_active))
+          }
+        }
+        if (primaryAction != PrimaryProfileAction.StartOrContinueTraining) {
+          TextButton(onClick = onStartTraining) {
+            Text(
+              text = if (profile.hasData) {
+                localizedStringResource(language, R.string.training_continue_training)
+              } else {
+                localizedStringResource(language, R.string.start_training)
+              }
+            )
           }
         }
         IconButton(onClick = onRename) {
@@ -355,8 +447,11 @@ private fun ProfileCard(
       Button(
         onClick = onPrimaryAction,
         modifier = Modifier.fillMaxWidth(),
+        enabled = !isPrimaryActionRunning && primaryAction != PrimaryProfileAction.LearnedUpToDate,
       ) {
-        Text(text = primaryActionText(language, primaryAction))
+        val baseText = primaryActionText(language, primaryAction, profile)
+        val buttonText = if (isPrimaryActionRunning) "$baseText..." else baseText
+        Text(text = buttonText)
       }
     }
   }
@@ -590,18 +685,37 @@ private fun ConfirmDialog(
 }
 
 private fun resolvePrimaryAction(profile: TrainingProfile): PrimaryProfileAction {
-  return if (profile.hasData) {
-    PrimaryProfileAction.ContinueTraining
-  } else {
-    PrimaryProfileAction.StartTraining
+  return when (profile.learningStatus) {
+    ProfileLearningStatus.NotReady -> PrimaryProfileAction.StartOrContinueTraining
+    ProfileLearningStatus.Ready -> PrimaryProfileAction.ComputeLearnedTrigger
+    ProfileLearningStatus.Outdated -> PrimaryProfileAction.RecomputeLearnedTrigger
+    ProfileLearningStatus.Learned -> PrimaryProfileAction.LearnedUpToDate
   }
 }
 
 @Composable
-private fun primaryActionText(language: String, action: PrimaryProfileAction): String {
+private fun primaryActionText(language: String, action: PrimaryProfileAction, profile: TrainingProfile): String {
   return when (action) {
-    PrimaryProfileAction.StartTraining -> localizedStringResource(language, R.string.start_training)
-    PrimaryProfileAction.ContinueTraining -> localizedStringResource(language, R.string.training_continue_training)
+    PrimaryProfileAction.StartOrContinueTraining -> {
+      if (profile.hasData) {
+        localizedStringResource(language, R.string.training_continue_training)
+      } else {
+        localizedStringResource(language, R.string.start_training)
+      }
+    }
+    PrimaryProfileAction.ComputeLearnedTrigger -> localizedStringResource(language, R.string.training_compute_learned_trigger)
+    PrimaryProfileAction.RecomputeLearnedTrigger -> localizedStringResource(language, R.string.training_recompute_learned_trigger)
+    PrimaryProfileAction.LearnedUpToDate -> localizedStringResource(language, R.string.training_learned_up_to_date)
+  }
+}
+
+@Composable
+private fun profileStatusBadge(language: String, status: ProfileLearningStatus): Pair<String, Color> {
+  return when (status) {
+    ProfileLearningStatus.NotReady -> localizedStringResource(language, R.string.training_status_not_ready) to Color(0xFFB71C1C)
+    ProfileLearningStatus.Ready -> localizedStringResource(language, R.string.training_status_ready) to Color(0xFF1B5E20)
+    ProfileLearningStatus.Learned -> localizedStringResource(language, R.string.training_status_learned) to Color(0xFF0D47A1)
+    ProfileLearningStatus.Outdated -> localizedStringResource(language, R.string.training_status_outdated) to Color(0xFFE65100)
   }
 }
 

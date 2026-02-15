@@ -354,7 +354,7 @@ class TrainingSessionManager(
     tapMonotonicSec: Double,
     tapWallIso: String,
   ) {
-    storage.saveSample(
+    val savedSample = storage.saveSample(
       request = SampleSaveRequest(
         profileId = profile.id,
         profileName = profile.name,
@@ -374,6 +374,8 @@ class TrainingSessionManager(
       label = label,
       durationSeconds = durationSeconds,
       eventTimeWallIso = tapWallIso,
+      sampleSha256 = savedSample.sha256,
+      sampleId = savedSample.sampleId,
     )
   }
 

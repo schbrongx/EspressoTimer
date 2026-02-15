@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -49,6 +51,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.tooling.preview.Preview
@@ -510,6 +514,12 @@ private fun SessionScreen(
   ) {
     Text(text = "${localizedStringResource(language, R.string.training_profile)}: ${profile.name}", style = MaterialTheme.typography.titleMedium)
     MicStatusBanner(language = language, microphoneStatus = sessionUiState.microphoneStatus)
+    AudioSignalPanel(
+      language = language,
+      signalHistory = sessionUiState.audioSignalHistory,
+      rmsLevel = sessionUiState.audioRmsLevel,
+      peakLevel = sessionUiState.audioPeakLevel,
+    )
 
     Text(
       text = localizedStringResource(language, R.string.training_guidance_minimum),
@@ -547,7 +557,7 @@ private fun SessionScreen(
 
     Button(
       onClick = { sessionManager.tapShotStart() },
-      enabled = sessionUiState.isRunning,
+      enabled = sessionUiState.isRunning && sessionUiState.isShotStartReady,
       modifier = Modifier
         .fillMaxWidth()
         .height(220.dp),
@@ -558,6 +568,15 @@ private fun SessionScreen(
         style = MaterialTheme.typography.headlineSmall,
       )
     }
+    Text(
+      text = when {
+        sessionUiState.isShotStartBusyPersisting -> localizedStringResource(language, R.string.training_shot_start_waiting)
+        sessionUiState.isShotStartReady -> localizedStringResource(language, R.string.training_shot_start_ready)
+        else -> localizedStringResource(language, R.string.training_shot_start_buffering)
+      },
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.primary,
+    )
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
       Button(
@@ -592,6 +611,61 @@ private fun SessionScreen(
         Text(text = localizedStringResource(language, R.string.training_retry_mic))
       }
     }
+  }
+}
+
+@Composable
+private fun AudioSignalPanel(
+  language: String,
+  signalHistory: List<Float>,
+  rmsLevel: Float,
+  peakLevel: Float,
+) {
+  val panelColor = MaterialTheme.colorScheme.primary
+  val chartBackground = MaterialTheme.colorScheme.surface
+  val barColor = panelColor.copy(alpha = 0.8f)
+  Column(
+    modifier = Modifier
+      .fillMaxWidth()
+      .background(
+        color = panelColor.copy(alpha = 0.08f),
+        shape = RoundedCornerShape(10.dp),
+      )
+      .padding(10.dp),
+    verticalArrangement = Arrangement.spacedBy(6.dp),
+  ) {
+    Text(
+      text = localizedStringResource(language, R.string.training_audio_signal),
+      style = MaterialTheme.typography.labelLarge,
+      color = panelColor,
+    )
+    Canvas(
+      modifier = Modifier
+        .fillMaxWidth()
+        .height(70.dp)
+        .background(
+          color = chartBackground,
+          shape = RoundedCornerShape(8.dp),
+        )
+    ) {
+      val values = if (signalHistory.isEmpty()) listOf(0f) else signalHistory.takeLast(56)
+      val count = values.size.coerceAtLeast(1)
+      val step = size.width / count.toFloat()
+      values.forEachIndexed { index, value ->
+        val level = value.coerceIn(0f, 1f)
+        val barHeight = level * size.height
+        drawRect(
+          color = barColor,
+          topLeft = Offset(x = index * step, y = size.height - barHeight),
+          size = Size(width = step * 0.7f, height = barHeight)
+        )
+      }
+    }
+    Text(
+      text = "${localizedStringResource(language, R.string.training_audio_rms)}: ${(rmsLevel * 100).toInt()}%  " +
+          "${localizedStringResource(language, R.string.training_audio_peak)}: ${(peakLevel * 100).toInt()}%",
+      style = MaterialTheme.typography.bodySmall,
+    )
   }
 }
 

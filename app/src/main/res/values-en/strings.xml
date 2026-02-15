@@ -71,4 +71,10 @@
     <string name="training_pending_events">Pending shot events</string>
     <string name="training_session_positives">Session positives</string>
     <string name="training_buffered_audio">Buffered audio</string>
+    <string name="training_audio_signal">Live audio signal</string>
+    <string name="training_audio_rms">RMS</string>
+    <string name="training_audio_peak">Peak</string>
+    <string name="training_shot_start_ready">SHOT START ready</string>
+    <string name="training_shot_start_buffering">SHOT START disabled while pre-roll buffer fills</string>
+    <string name="training_shot_start_waiting">SHOT START disabled until post-roll is persisted</string>
 </resources>

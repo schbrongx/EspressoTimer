@@ -12,8 +12,10 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.format.DateTimeFormatter
+import java.util.ArrayDeque
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 import kotlin.random.Random
 
 data class TrainingSessionUiState(
@@ -31,6 +33,11 @@ data class TrainingSessionUiState(
   val bufferedSeconds: Double = 0.0,
   val missingPositives: Int = TrainingConfig.minPositivesReady,
   val missingNegatives: Int = TrainingConfig.minNegativesReady,
+  val isShotStartReady: Boolean = false,
+  val isShotStartBusyPersisting: Boolean = false,
+  val audioRmsLevel: Float = 0f,
+  val audioPeakLevel: Float = 0f,
+  val audioSignalHistory: List<Float> = emptyList(),
   val infoMessage: String? = null,
 )
 
@@ -59,6 +66,9 @@ class TrainingSessionManager(
   private var lastNegativeAttemptAtSec: Double = Double.NEGATIVE_INFINITY
   private var lastTapAtSec: Double = Double.NEGATIVE_INFINITY
   private var profile: TrainingProfile? = null
+  private val audioSignalHistory = ArrayDeque<Float>()
+  private var audioRmsLevel: Float = 0f
+  private var audioPeakLevel: Float = 0f
 
   private var sessionPositives: Int = 0
   private var sessionNegatives: Int = 0
@@ -84,6 +94,9 @@ class TrainingSessionManager(
       pendingTaps.clear()
       positiveWindows.clear()
       ringBuffer.clear()
+      audioSignalHistory.clear()
+      audioRmsLevel = 0f
+      audioPeakLevel = 0f
       lastNegativeCaptureAtSec = Double.NEGATIVE_INFINITY
       lastNegativeAttemptAtSec = Double.NEGATIVE_INFINITY
       lastTapAtSec = Double.NEGATIVE_INFINITY
@@ -112,6 +125,9 @@ class TrainingSessionManager(
     synchronized(lock) {
       audioBackend.stop()
       pendingTaps.clear()
+      audioSignalHistory.clear()
+      audioRmsLevel = 0f
+      audioPeakLevel = 0f
       updateUiState(
         profile = profile,
         isRunning = false,
@@ -183,6 +199,10 @@ class TrainingSessionManager(
         uiStateFlow.value = uiStateFlow.value.copy(infoMessage = "Tap ignored (debounce: 500 ms).")
         return false
       }
+      if (pendingTaps.isNotEmpty()) {
+        uiStateFlow.value = uiStateFlow.value.copy(infoMessage = "Waiting for current shot window to finish saving.")
+        return false
+      }
       lastTapAtSec = tapMonotonicSec
 
       val preRollStart = tapMonotonicSec - TrainingConfig.positivePreRollSeconds
@@ -227,6 +247,7 @@ class TrainingSessionManager(
         return
       }
       ringBuffer.append(samples = samples, chunkStartMonotonicSec = chunkStartSec)
+      updateAudioSignalVisualization(samples)
       processPendingPositives(chunkEndSec)
       processAutomaticNegatives(chunkEndSec)
       updateUiState(
@@ -392,6 +413,11 @@ class TrainingSessionManager(
   private fun updateUiState(profile: TrainingProfile?, isRunning: Boolean, infoMessage: String? = null) {
     val positives = profile?.positivesCount ?: 0
     val negatives = profile?.negativesCount ?: 0
+    val latestMonotonicSec = ringBuffer.latestMonotonicSec()
+    val canTapShotStart = isRunning &&
+        pendingTaps.isEmpty() &&
+        latestMonotonicSec != null &&
+        ringBuffer.hasWindow(latestMonotonicSec - TrainingConfig.positivePreRollSeconds, latestMonotonicSec)
     uiStateFlow.value = TrainingSessionUiState(
       profileId = profile?.id,
       profileName = profile?.name ?: "",
@@ -407,7 +433,42 @@ class TrainingSessionManager(
       bufferedSeconds = ringBuffer.bufferedDurationSeconds(),
       missingPositives = (TrainingConfig.minPositivesReady - positives).coerceAtLeast(0),
       missingNegatives = (TrainingConfig.minNegativesReady - negatives).coerceAtLeast(0),
+      isShotStartReady = canTapShotStart,
+      isShotStartBusyPersisting = pendingTaps.isNotEmpty(),
+      audioRmsLevel = audioRmsLevel,
+      audioPeakLevel = audioPeakLevel,
+      audioSignalHistory = audioSignalHistory.toList(),
       infoMessage = infoMessage,
     )
+  }
+
+  private fun updateAudioSignalVisualization(samples: ShortArray) {
+    if (samples.isEmpty()) {
+      audioRmsLevel = 0f
+      audioPeakLevel = 0f
+      return
+    }
+    var squaredSum = 0.0
+    var peak = 0.0
+    val scale = Short.MAX_VALUE.toDouble().coerceAtLeast(1.0)
+    samples.forEach { sample ->
+      val normalized = sample.toDouble() / scale
+      squaredSum += normalized * normalized
+      val absolute = kotlin.math.abs(normalized)
+      if (absolute > peak) {
+        peak = absolute
+      }
+    }
+    val rms = sqrt(squaredSum / samples.size.toDouble())
+    val rmsDisplay = (rms * 6.0).coerceIn(0.0, 1.0).toFloat()
+    val peakDisplay = (peak * 2.5).coerceIn(0.0, 1.0).toFloat()
+    audioRmsLevel = rmsDisplay
+    audioPeakLevel = peakDisplay
+
+    val historyValue = max(rmsDisplay, peakDisplay * 0.75f).coerceIn(0f, 1f)
+    audioSignalHistory.addLast(historyValue)
+    while (audioSignalHistory.size > 56) {
+      audioSignalHistory.removeFirst()
+    }
   }
 }

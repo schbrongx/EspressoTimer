@@ -138,7 +138,7 @@ fun EspressoTimerApp(
     // Settings screen route
     composable(route = "settings") {
       SettingsScreen(
-        onNavigateBack = {},
+        onNavigateBack = { navController.popBackStack() },
         initialTargetTime = targetTime,
         initialLanguage = language,
         initialSignalEnabled = signalEnabled,

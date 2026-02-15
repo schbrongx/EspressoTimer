@@ -472,6 +472,7 @@ private fun SessionScreen(
   val context = LocalContext.current
   val view = LocalView.current
   var sessionUiState by remember { mutableStateOf(TrainingSessionUiState()) }
+  var detailsExpanded by rememberSaveable(profile.id) { mutableStateOf(false) }
   val microphonePermissionNeededText = localizedStringResource(language, R.string.training_microphone_permission_needed)
   val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
     if (granted) {
@@ -507,108 +508,164 @@ private fun SessionScreen(
     }
   }
 
-  Column(
+  Scaffold(
     modifier = modifier,
-    horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(12.dp)
-  ) {
-    Text(text = "${localizedStringResource(language, R.string.training_profile)}: ${profile.name}", style = MaterialTheme.typography.titleMedium)
-    MicStatusBanner(language = language, microphoneStatus = sessionUiState.microphoneStatus)
-    AudioSignalPanel(
-      language = language,
-      signalHistory = sessionUiState.audioSignalHistory,
-      rmsLevel = sessionUiState.audioRmsLevel,
-      peakLevel = sessionUiState.audioPeakLevel,
-    )
+    bottomBar = {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .background(MaterialTheme.colorScheme.surface)
+          .padding(top = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        Button(
+          onClick = { sessionManager.tapShotStart() },
+          enabled = sessionUiState.isRunning && sessionUiState.isShotStartReady,
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(160.dp),
+          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+        ) {
+          Text(
+            text = localizedStringResource(language, R.string.training_shot_start),
+            style = MaterialTheme.typography.headlineSmall,
+          )
+        }
+        Text(
+          text = when {
+            sessionUiState.isShotStartBusyPersisting -> localizedStringResource(language, R.string.training_shot_start_waiting)
+            sessionUiState.isShotStartReady -> localizedStringResource(language, R.string.training_shot_start_ready)
+            else -> localizedStringResource(language, R.string.training_shot_start_buffering)
+          },
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.primary,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+          Button(
+            onClick = { onStop() },
+            modifier = Modifier.weight(1f)
+          ) {
+            Text(text = localizedStringResource(language, R.string.stop_training))
+          }
 
-    Text(
-      text = localizedStringResource(language, R.string.training_guidance_minimum),
-      style = MaterialTheme.typography.bodySmall,
-      color = MaterialTheme.colorScheme.primary
-    )
-
-    Text(text = "${localizedStringResource(language, R.string.training_positives)}: ${sessionUiState.totalPositives}")
-    Text(text = "${localizedStringResource(language, R.string.training_negatives)}: ${sessionUiState.totalNegatives}")
-    Text(text = "${localizedStringResource(language, R.string.training_pending_events)}: ${sessionUiState.pendingPositiveEvents}")
-    Text(text = "${localizedStringResource(language, R.string.training_session_positives)}: ${sessionUiState.sessionPositives}")
-    Text(text = "${localizedStringResource(language, R.string.training_total_recorded)}: ${formatSeconds(sessionUiState.totalRecordedSeconds)}")
-    Text(
-      text = "${localizedStringResource(language, R.string.training_last_event)}: ${sessionUiState.lastEventWallIso ?: localizedStringResource(language, R.string.training_unknown)}",
-      style = MaterialTheme.typography.bodySmall,
-    )
-    Text(
-      text = "${localizedStringResource(language, R.string.training_buffered_audio)}: ${formatSeconds(sessionUiState.bufferedSeconds)}",
-      style = MaterialTheme.typography.bodySmall,
-    )
-    Text(
-      text = "${localizedStringResource(language, R.string.training_ready_in)} ${sessionUiState.missingPositives} / ${sessionUiState.missingNegatives}",
-      style = MaterialTheme.typography.bodySmall,
-    )
-
-    if (!sessionUiState.infoMessage.isNullOrBlank()) {
-      Text(
-        text = sessionUiState.infoMessage ?: "",
-        color = MaterialTheme.colorScheme.primary,
-        style = MaterialTheme.typography.bodySmall,
-      )
+          Button(
+            onClick = { sessionManager.addBackgroundSampleNow() },
+            modifier = Modifier.weight(1f),
+            enabled = sessionUiState.isRunning,
+          ) {
+            Text(text = localizedStringResource(language, R.string.training_add_background_now))
+          }
+        }
+      }
     }
-
-    Spacer(modifier = Modifier.height(8.dp))
-
-    Button(
-      onClick = { sessionManager.tapShotStart() },
-      enabled = sessionUiState.isRunning && sessionUiState.isShotStartReady,
+  ) { innerPadding ->
+    LazyColumn(
       modifier = Modifier
-        .fillMaxWidth()
-        .height(220.dp),
-      colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+        .fillMaxSize()
+        .padding(innerPadding),
+      verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-      Text(
-        text = localizedStringResource(language, R.string.training_shot_start),
-        style = MaterialTheme.typography.headlineSmall,
-      )
-    }
-    Text(
-      text = when {
-        sessionUiState.isShotStartBusyPersisting -> localizedStringResource(language, R.string.training_shot_start_waiting)
-        sessionUiState.isShotStartReady -> localizedStringResource(language, R.string.training_shot_start_ready)
-        else -> localizedStringResource(language, R.string.training_shot_start_buffering)
-      },
-      style = MaterialTheme.typography.bodySmall,
-      color = MaterialTheme.colorScheme.primary,
-    )
-
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-      Button(
-        onClick = { onStop() },
-        modifier = Modifier.weight(1f)
-      ) {
-        Text(text = localizedStringResource(language, R.string.stop_training))
+      item {
+        Text(text = "${localizedStringResource(language, R.string.training_profile)}: ${profile.name}", style = MaterialTheme.typography.titleMedium)
       }
-
-      Button(
-        onClick = { sessionManager.resetSessionCounts() },
-        modifier = Modifier.weight(1f),
-        enabled = sessionUiState.isRunning,
-      ) {
-        Text(text = localizedStringResource(language, R.string.training_reset_session_counts))
+      item {
+        MicStatusBanner(language = language, microphoneStatus = sessionUiState.microphoneStatus)
       }
-    }
-
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-      Button(
-        onClick = { sessionManager.addBackgroundSampleNow() },
-        modifier = Modifier.weight(1f),
-        enabled = sessionUiState.isRunning,
-      ) {
-        Text(text = localizedStringResource(language, R.string.training_add_background_now))
+      item {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+          Text(text = "${localizedStringResource(language, R.string.training_positives)}: ${sessionUiState.totalPositives}")
+          Text(text = "${localizedStringResource(language, R.string.training_negatives)}: ${sessionUiState.totalNegatives}")
+        }
       }
-
-      Button(
-        onClick = { ensureSessionStarted() },
-        modifier = Modifier.weight(1f),
-      ) {
-        Text(text = localizedStringResource(language, R.string.training_retry_mic))
+      item {
+        Text(
+          text = "${localizedStringResource(language, R.string.training_ready_in)} ${sessionUiState.missingPositives} / ${sessionUiState.missingNegatives}",
+          style = MaterialTheme.typography.bodySmall,
+        )
+      }
+      item {
+        if (!sessionUiState.infoMessage.isNullOrBlank()) {
+          Text(
+            text = sessionUiState.infoMessage ?: "",
+            color = MaterialTheme.colorScheme.primary,
+            style = MaterialTheme.typography.bodySmall,
+          )
+        }
+      }
+      item {
+        TextButton(
+          onClick = { detailsExpanded = !detailsExpanded },
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Text(
+            text = if (detailsExpanded) {
+              localizedStringResource(language, R.string.training_hide_details)
+            } else {
+              localizedStringResource(language, R.string.training_show_details)
+            }
+          )
+        }
+      }
+      if (detailsExpanded) {
+        item {
+          Text(
+            text = localizedStringResource(language, R.string.training_guidance_minimum),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary
+          )
+        }
+        item {
+          Text(text = "${localizedStringResource(language, R.string.training_pending_events)}: ${sessionUiState.pendingPositiveEvents}")
+        }
+        item {
+          Text(text = "${localizedStringResource(language, R.string.training_session_positives)}: ${sessionUiState.sessionPositives}")
+        }
+        item {
+          Text(text = "${localizedStringResource(language, R.string.training_total_recorded)}: ${formatSeconds(sessionUiState.totalRecordedSeconds)}")
+        }
+        item {
+          Text(
+            text = "${localizedStringResource(language, R.string.training_last_event)}: ${sessionUiState.lastEventWallIso ?: localizedStringResource(language, R.string.training_unknown)}",
+            style = MaterialTheme.typography.bodySmall,
+          )
+        }
+        item {
+          Text(
+            text = "${localizedStringResource(language, R.string.training_buffered_audio)}: ${formatSeconds(sessionUiState.bufferedSeconds)}",
+            style = MaterialTheme.typography.bodySmall,
+          )
+        }
+        item {
+          Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Button(
+              onClick = { sessionManager.resetSessionCounts() },
+              modifier = Modifier.weight(1f),
+              enabled = sessionUiState.isRunning,
+            ) {
+              Text(text = localizedStringResource(language, R.string.training_reset_session_counts))
+            }
+            Button(
+              onClick = { ensureSessionStarted() },
+              modifier = Modifier.weight(1f),
+            ) {
+              Text(text = localizedStringResource(language, R.string.training_retry_mic))
+            }
+          }
+        }
+        item {
+          AudioSignalPanel(
+            language = language,
+            signalHistory = sessionUiState.audioSignalHistory,
+            rmsLevel = sessionUiState.audioRmsLevel,
+            peakLevel = sessionUiState.audioPeakLevel,
+          )
+        }
+      }
+      item {
+        Spacer(modifier = Modifier.height(8.dp))
       }
     }
   }

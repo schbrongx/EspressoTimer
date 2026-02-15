@@ -65,6 +65,7 @@ class TrainingSessionManager(
   private var lastNegativeCaptureAtSec: Double = Double.NEGATIVE_INFINITY
   private var lastNegativeAttemptAtSec: Double = Double.NEGATIVE_INFINITY
   private var lastTapAtSec: Double = Double.NEGATIVE_INFINITY
+  private var consecutivePositiveExtractionFailures: Int = 0
   private var profile: TrainingProfile? = null
   private val audioSignalHistory = ArrayDeque<Float>()
   private var audioRmsLevel: Float = 0f
@@ -100,6 +101,7 @@ class TrainingSessionManager(
       lastNegativeCaptureAtSec = Double.NEGATIVE_INFINITY
       lastNegativeAttemptAtSec = Double.NEGATIVE_INFINITY
       lastTapAtSec = Double.NEGATIVE_INFINITY
+      consecutivePositiveExtractionFailures = 0
       updateUiState(
         profile = profile,
         isRunning = false,
@@ -128,6 +130,7 @@ class TrainingSessionManager(
       audioSignalHistory.clear()
       audioRmsLevel = 0f
       audioPeakLevel = 0f
+      consecutivePositiveExtractionFailures = 0
       updateUiState(
         profile = profile,
         isRunning = false,
@@ -200,7 +203,13 @@ class TrainingSessionManager(
         return false
       }
 
-      val tapMonotonicSec = SystemClock.elapsedRealtimeNanos() / 1_000_000_000.0
+      val tapMonotonicSec = ringBuffer.latestMonotonicSec()
+      if (tapMonotonicSec == null) {
+        uiStateFlow.value = uiStateFlow.value.copy(
+          infoMessage = "SHOT START unavailable: no audio buffered yet. Wait for the buffer to fill."
+        )
+        return false
+      }
       if ((tapMonotonicSec - lastTapAtSec) < TrainingConfig.tapDebounceSeconds) {
         uiStateFlow.value = uiStateFlow.value.copy(infoMessage = "Tap ignored (debounce: 500 ms).")
         return false
@@ -215,13 +224,14 @@ class TrainingSessionManager(
       if (!ringBuffer.hasWindow(preRollStart, tapMonotonicSec)) {
         val buffered = ringBuffer.bufferedDurationSeconds()
         uiStateFlow.value = uiStateFlow.value.copy(
-          infoMessage = "Buffering pre-roll audio (${String.format("%.1f", buffered)}s/${TrainingConfig.positivePreRollSeconds}s)."
+          infoMessage = "SHOT START not ready: pre-roll unavailable (${String.format("%.1f", buffered)}s/${TrainingConfig.positivePreRollSeconds}s buffered)."
         )
         return false
       }
 
       val tapWallIso = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
       pendingTaps += PendingTap(tapMonotonicSec = tapMonotonicSec, tapWallIso = tapWallIso)
+      consecutivePositiveExtractionFailures = 0
       updateUiState(
         profile = profile,
         isRunning = true,
@@ -282,8 +292,9 @@ class TrainingSessionManager(
       val samples = ringBuffer.extractWindow(windowStart, windowEnd)
       if (samples == null) {
         iterator.remove()
+        consecutivePositiveExtractionFailures += 1
         uiStateFlow.value = uiStateFlow.value.copy(
-          infoMessage = "Skipped one tap: positive window unavailable or had a timing seam."
+          infoMessage = buildPositiveExtractionFailureMessage(windowStart, windowEnd)
         )
         continue
       }
@@ -297,6 +308,7 @@ class TrainingSessionManager(
       )
       positiveWindows += TimeWindow(startSec = windowStart, endSec = windowEnd)
       sessionPositives += 1
+      consecutivePositiveExtractionFailures = 0
       iterator.remove()
       refreshProfileFromRepository(activeProfile.id)
       uiStateFlow.value = uiStateFlow.value.copy(infoMessage = "Positive sample saved.")
@@ -476,5 +488,20 @@ class TrainingSessionManager(
     while (audioSignalHistory.size > 56) {
       audioSignalHistory.removeFirst()
     }
+  }
+
+  private fun buildPositiveExtractionFailureMessage(windowStart: Double, windowEnd: Double): String {
+    val coverage = ringBuffer.coverageWindowSeconds()
+    if (coverage == null) {
+      return "Skipped SHOT START: no buffered audio available for positive window."
+    }
+    val missingHeadSeconds = (coverage.first - windowStart).coerceAtLeast(0.0)
+    val missingTailSeconds = (windowEnd - coverage.second).coerceAtLeast(0.0)
+    val detail = when {
+      missingHeadSeconds > 0.0 -> "missing pre-roll ${String.format("%.3f", missingHeadSeconds)}s"
+      missingTailSeconds > 0.0 -> "missing post-roll ${String.format("%.3f", missingTailSeconds)}s"
+      else -> "window incomplete due to timing seam"
+    }
+    return "Skipped SHOT START (#$consecutivePositiveExtractionFailures): $detail."
   }
 }

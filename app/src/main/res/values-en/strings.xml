@@ -77,4 +77,6 @@
     <string name="training_shot_start_ready">SHOT START ready</string>
     <string name="training_shot_start_buffering">SHOT START disabled while pre-roll buffer fills</string>
     <string name="training_shot_start_waiting">SHOT START disabled until post-roll is persisted</string>
+    <string name="training_show_details">Show details</string>
+    <string name="training_hide_details">Hide details</string>
 </resources>

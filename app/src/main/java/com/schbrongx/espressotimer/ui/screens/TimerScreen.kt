@@ -214,6 +214,14 @@ fun TimerScreen(
         )
         Text(text = localizedStringResource(language, R.string.use_ai_to_start_timer))
       }
+      Button(
+        onClick = { navController.navigate(route = "training") },
+        modifier = Modifier
+          .align(Alignment.CenterHorizontally)
+          .padding(top = 8.dp)
+      ) {
+        Text(text = localizedStringResource(language, R.string.training_learning_mode))
+      }
 
 
       // Spacer to adjust the layout
@@ -244,7 +252,7 @@ fun TimerScreen(
         // Training icon (placeholder for future functionality)
         Icon(
           imageVector = Icons.Rounded.Psychology,
-          contentDescription = localizedStringResource(language, R.string.training),
+          contentDescription = localizedStringResource(language, R.string.training_learning_mode),
           modifier = Modifier
             .size(48.dp)
             .weight(1f)

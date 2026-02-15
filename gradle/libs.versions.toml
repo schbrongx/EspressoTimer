@@ -1,6 +1,6 @@
 [versions]
-agp = "8.6.0"
-kotlin = "1.9.0"
+agp = "9.0.1"
+kotlin = "2.2.10"
 coreKtx = "1.13.1"
 junit = "4.13.2"
 junitVersion = "1.2.1"
@@ -40,4 +40,5 @@ androidx-compose-material = { group = "androidx.wear.compose", name = "compose-m
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 

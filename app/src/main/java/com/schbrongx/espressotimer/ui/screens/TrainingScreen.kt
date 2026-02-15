@@ -27,7 +27,6 @@ import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -35,8 +34,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -46,30 +43,23 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import com.schbrongx.espressotimer.DEFAULT_LANGUAGE
 import com.schbrongx.espressotimer.EspressoTimerMaterialTheme
 import com.schbrongx.espressotimer.R
 import com.schbrongx.espressotimer.training.AndroidAudioBackend
-import com.schbrongx.espressotimer.training.ComputeLearnedResult
-import com.schbrongx.espressotimer.training.LearningPipeline
 import com.schbrongx.espressotimer.training.MicrophoneStatus
-import com.schbrongx.espressotimer.training.ProfileStatusBadge
 import com.schbrongx.espressotimer.training.ProfilesRepository
-import com.schbrongx.espressotimer.training.TrainingConfig
 import com.schbrongx.espressotimer.training.TrainingProfile
 import com.schbrongx.espressotimer.training.TrainingSessionManager
 import com.schbrongx.espressotimer.training.TrainingSessionUiState
@@ -83,18 +73,13 @@ private enum class TrainingRoute {
 
 private enum class PrimaryProfileAction {
   StartTraining,
-  ContinueTraining,
-  Compute,
-  Recompute,
-  LearnedUpToDate
+  ContinueTraining
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrainingScreen(onNavigateBack: () -> Unit, language: String) {
   val context = LocalContext.current
-  val scope = rememberCoroutineScope()
-  val snackbarHostState = remember { SnackbarHostState() }
 
   val storage = remember { TrainingStorage(context.applicationContext) }
   val profilesRepository = remember { ProfilesRepository(storage) }
@@ -105,7 +90,6 @@ fun TrainingScreen(onNavigateBack: () -> Unit, language: String) {
       audioBackend = AndroidAudioBackend(context.applicationContext),
     )
   }
-  val learningPipeline = remember { LearningPipeline(storage, profilesRepository) }
 
   DisposableEffect(Unit) {
     onDispose {
@@ -120,9 +104,6 @@ fun TrainingScreen(onNavigateBack: () -> Unit, language: String) {
   var renameProfile by remember { mutableStateOf<TrainingProfile?>(null) }
   var deleteProfile by remember { mutableStateOf<TrainingProfile?>(null) }
   var resetProfile by remember { mutableStateOf<TrainingProfile?>(null) }
-  var profileBusyId by remember { mutableStateOf<String?>(null) }
-  val learnedSuccessText = localizedStringResource(language, R.string.training_learned_success)
-  val learnedUpToDateText = localizedStringResource(language, R.string.training_learned_up_to_date)
 
   fun refreshProfiles() {
     profilesState = profilesRepository.getState()
@@ -164,7 +145,6 @@ fun TrainingScreen(onNavigateBack: () -> Unit, language: String) {
         }
       )
     },
-    snackbarHost = { SnackbarHost(snackbarHostState) }
   ) { innerPadding ->
     val sessionProfile = profilesState.profiles.firstOrNull { it.id == selectedSessionProfileId }
     LaunchedEffect(route, sessionProfile) {
@@ -197,6 +177,13 @@ fun TrainingScreen(onNavigateBack: () -> Unit, language: String) {
           .padding(innerPadding)
           .padding(horizontal = 16.dp, vertical = 12.dp)
       ) {
+        Text(
+          text = localizedStringResource(language, R.string.training_guidance_minimum),
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
         if (profilesState.profiles.isEmpty()) {
           Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -218,59 +205,19 @@ fun TrainingScreen(onNavigateBack: () -> Unit, language: String) {
                 language = language,
                 profile = profile,
                 isActive = profile.id == profilesState.activeProfileId,
-                isBusy = profileBusyId == profile.id,
                 primaryAction = primaryAction,
                 onSelect = {
                   profilesRepository.selectActiveProfile(profile.id)
                   refreshProfiles()
                 },
-                onRename = {
-                  renameProfile = profile
-                },
-                onDelete = {
-                  deleteProfile = profile
-                },
-                onReset = {
-                  resetProfile = profile
-                },
+                onRename = { renameProfile = profile },
+                onDelete = { deleteProfile = profile },
+                onReset = { resetProfile = profile },
                 onPrimaryAction = {
-                  when (primaryAction) {
-                    PrimaryProfileAction.StartTraining,
-                    PrimaryProfileAction.ContinueTraining -> {
-                      profilesRepository.selectActiveProfile(profile.id)
-                      refreshProfiles()
-                      selectedSessionProfileId = profile.id
-                      route = TrainingRoute.Session
-                    }
-
-                    PrimaryProfileAction.Compute,
-                    PrimaryProfileAction.Recompute -> {
-                      scope.launch {
-                        profileBusyId = profile.id
-                        val computeResult = withContext(Dispatchers.Default) {
-                          learningPipeline.computeLearnedTrigger(profile)
-                        }
-                        refreshProfiles()
-                        val message = when (computeResult) {
-                          is ComputeLearnedResult.Success -> {
-                            learnedSuccessText
-                          }
-
-                          is ComputeLearnedResult.Error -> {
-                            computeResult.message
-                          }
-                        }
-                        snackbarHostState.showSnackbar(message)
-                        profileBusyId = null
-                      }
-                    }
-
-                    PrimaryProfileAction.LearnedUpToDate -> {
-                      scope.launch {
-                        snackbarHostState.showSnackbar(learnedUpToDateText)
-                      }
-                    }
-                  }
+                  profilesRepository.selectActiveProfile(profile.id)
+                  refreshProfiles()
+                  selectedSessionProfileId = profile.id
+                  route = TrainingRoute.Session
                 }
               )
             }
@@ -352,7 +299,6 @@ private fun ProfileCard(
   language: String,
   profile: TrainingProfile,
   isActive: Boolean,
-  isBusy: Boolean,
   primaryAction: PrimaryProfileAction,
   onSelect: () -> Unit,
   onRename: () -> Unit,
@@ -378,26 +324,16 @@ private fun ProfileCard(
         }
       }
 
-      Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Text(text = "${localizedStringResource(language, R.string.training_positives)}: ${profile.positivesCount}")
-        Text(text = "${localizedStringResource(language, R.string.training_negatives)}: ${profile.negativesCount}")
-      }
-
-      StatusBadge(
-        text = statusLabel(language, profile.statusBadge),
-        color = statusColor(profile.statusBadge),
+      Text(text = "${localizedStringResource(language, R.string.training_positives)}: ${profile.positivesCount}")
+      Text(text = "${localizedStringResource(language, R.string.training_negatives)}: ${profile.negativesCount}")
+      Text(
+        text = "${localizedStringResource(language, R.string.training_total_recorded)}: ${formatSeconds(profile.totalRecordedSeconds)}",
+        style = MaterialTheme.typography.bodySmall
       )
-
-      if (profile.hasLearnedArtifact && !profile.learnedAtIso.isNullOrBlank()) {
-        Text(
-          text = "${localizedStringResource(language, R.string.training_last_computed)}: ${profile.learnedAtIso}",
-          style = MaterialTheme.typography.bodySmall
-        )
-        Text(
-          text = "${localizedStringResource(language, R.string.training_quality)}: ${profile.learnedQuality ?: localizedStringResource(language, R.string.training_unknown)}",
-          style = MaterialTheme.typography.bodySmall
-        )
-      }
+      Text(
+        text = "${localizedStringResource(language, R.string.training_last_event)}: ${profile.lastEventWallIso ?: localizedStringResource(language, R.string.training_unknown)}",
+        style = MaterialTheme.typography.bodySmall
+      )
 
       Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         if (!isActive) {
@@ -411,33 +347,16 @@ private fun ProfileCard(
         IconButton(onClick = onDelete) {
           Icon(Icons.Rounded.Delete, contentDescription = localizedStringResource(language, R.string.training_delete_profile))
         }
-        IconButton(onClick = onReset) {
+        IconButton(onClick = onReset, enabled = profile.hasData) {
           Icon(Icons.Rounded.Replay, contentDescription = localizedStringResource(language, R.string.training_reset_data))
         }
       }
 
       Button(
         onClick = onPrimaryAction,
-        enabled = !isBusy && primaryAction != PrimaryProfileAction.LearnedUpToDate,
         modifier = Modifier.fillMaxWidth(),
       ) {
-        if (isBusy) {
-          CircularProgressIndicator(
-            modifier = Modifier.size(20.dp),
-            color = MaterialTheme.colorScheme.onPrimary,
-            strokeWidth = 2.dp,
-          )
-        } else {
-          Text(text = primaryActionText(language, primaryAction))
-        }
-      }
-
-      if (primaryAction == PrimaryProfileAction.LearnedUpToDate) {
-        Text(
-          text = localizedStringResource(language, R.string.training_learned_up_to_date),
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.primary
-        )
+        Text(text = primaryActionText(language, primaryAction))
       }
     }
   }
@@ -452,6 +371,7 @@ private fun SessionScreen(
   onStop: () -> Unit,
 ) {
   val context = LocalContext.current
+  val view = LocalView.current
   var sessionUiState by remember { mutableStateOf(TrainingSessionUiState()) }
   val microphonePermissionNeededText = localizedStringResource(language, R.string.training_microphone_permission_needed)
   val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -481,6 +401,13 @@ private fun SessionScreen(
     }
   }
 
+  DisposableEffect(sessionUiState.isRunning) {
+    view.keepScreenOn = sessionUiState.isRunning
+    onDispose {
+      view.keepScreenOn = false
+    }
+  }
+
   Column(
     modifier = modifier,
     horizontalAlignment = Alignment.CenterHorizontally,
@@ -489,14 +416,27 @@ private fun SessionScreen(
     Text(text = "${localizedStringResource(language, R.string.training_profile)}: ${profile.name}", style = MaterialTheme.typography.titleMedium)
     MicStatusBanner(language = language, microphoneStatus = sessionUiState.microphoneStatus)
 
+    Text(
+      text = localizedStringResource(language, R.string.training_guidance_minimum),
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.primary
+    )
+
     Text(text = "${localizedStringResource(language, R.string.training_positives)}: ${sessionUiState.totalPositives}")
     Text(text = "${localizedStringResource(language, R.string.training_negatives)}: ${sessionUiState.totalNegatives}")
+    Text(text = "${localizedStringResource(language, R.string.training_pending_events)}: ${sessionUiState.pendingPositiveEvents}")
+    Text(text = "${localizedStringResource(language, R.string.training_session_positives)}: ${sessionUiState.sessionPositives}")
+    Text(text = "${localizedStringResource(language, R.string.training_total_recorded)}: ${formatSeconds(sessionUiState.totalRecordedSeconds)}")
     Text(
-      text = "${localizedStringResource(language, R.string.training_ready_in)} ${sessionUiState.missingPositives} / ${sessionUiState.missingNegatives}",
+      text = "${localizedStringResource(language, R.string.training_last_event)}: ${sessionUiState.lastEventWallIso ?: localizedStringResource(language, R.string.training_unknown)}",
       style = MaterialTheme.typography.bodySmall,
     )
     Text(
-      text = "${localizedStringResource(language, R.string.training_session_counts)} ${sessionUiState.sessionPositives} / ${sessionUiState.sessionNegatives}",
+      text = "${localizedStringResource(language, R.string.training_buffered_audio)}: ${formatSeconds(sessionUiState.bufferedSeconds)}",
+      style = MaterialTheme.typography.bodySmall,
+    )
+    Text(
+      text = "${localizedStringResource(language, R.string.training_ready_in)} ${sessionUiState.missingPositives} / ${sessionUiState.missingNegatives}",
       style = MaterialTheme.typography.bodySmall,
     )
 
@@ -650,20 +590,11 @@ private fun ConfirmDialog(
 }
 
 private fun resolvePrimaryAction(profile: TrainingProfile): PrimaryProfileAction {
-  if (!profile.isReady) {
-    return if (profile.positivesCount > 0 || profile.negativesCount > 0) {
-      PrimaryProfileAction.ContinueTraining
-    } else {
-      PrimaryProfileAction.StartTraining
-    }
+  return if (profile.hasData) {
+    PrimaryProfileAction.ContinueTraining
+  } else {
+    PrimaryProfileAction.StartTraining
   }
-  if (profile.hasLearnedArtifact && profile.isOutdated) {
-    return PrimaryProfileAction.Recompute
-  }
-  if (!profile.hasLearnedArtifact) {
-    return PrimaryProfileAction.Compute
-  }
-  return PrimaryProfileAction.LearnedUpToDate
 }
 
 @Composable
@@ -671,30 +602,10 @@ private fun primaryActionText(language: String, action: PrimaryProfileAction): S
   return when (action) {
     PrimaryProfileAction.StartTraining -> localizedStringResource(language, R.string.start_training)
     PrimaryProfileAction.ContinueTraining -> localizedStringResource(language, R.string.training_continue_training)
-    PrimaryProfileAction.Compute -> localizedStringResource(language, R.string.training_compute_learned_trigger)
-    PrimaryProfileAction.Recompute -> localizedStringResource(language, R.string.training_recompute_learned_trigger)
-    PrimaryProfileAction.LearnedUpToDate -> localizedStringResource(language, R.string.training_learned_up_to_date)
   }
 }
 
-@Composable
-private fun statusLabel(language: String, badge: ProfileStatusBadge): String {
-  return when (badge) {
-    ProfileStatusBadge.NotReady -> localizedStringResource(language, R.string.training_status_not_ready)
-    ProfileStatusBadge.Ready -> localizedStringResource(language, R.string.training_status_ready)
-    ProfileStatusBadge.Learned -> localizedStringResource(language, R.string.training_status_learned)
-    ProfileStatusBadge.Outdated -> localizedStringResource(language, R.string.training_status_outdated)
-  }
-}
-
-private fun statusColor(status: ProfileStatusBadge): Color {
-  return when (status) {
-    ProfileStatusBadge.NotReady -> Color(0xFF6D4C41)
-    ProfileStatusBadge.Ready -> Color(0xFF2E7D32)
-    ProfileStatusBadge.Learned -> Color(0xFF1565C0)
-    ProfileStatusBadge.Outdated -> Color(0xFFE65100)
-  }
-}
+private fun formatSeconds(seconds: Double): String = String.format("%.1fs", seconds.coerceAtLeast(0.0))
 
 @Preview(showBackground = true)
 @Composable

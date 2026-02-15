@@ -1,106 +1,79 @@
 # EspressoTimer
 
-EspressoTimer is an Android app for manual espresso shot timing.  
-This repository now includes a full local **Training / Learning Mode** for building per-profile audio trigger artifacts for future auto-start detection.
+EspressoTimer is an Android app for manual espresso shot timing.
+
+This repository includes a **Training / Learning Mode** for collecting labeled audio data for future shot-start recognition.
+Current scope is data capture only (no ML inference or auto-start logic yet).
 
 ## Training / Learning Mode
 
-Open the app, then tap the training icon to enter **Training / Learning Mode**.
+Open the app and enter **Training / Learning Mode**.
 
-### 1. Manage profiles
+### Profile CRUD
 
 - Create profile
+- List profiles
+- Select active profile
 - Rename profile
 - Delete profile
-- Select active profile
-- Reset training data for a profile (clears captured samples and learned artifacts)
+- Reset training data for a profile
 
 Each profile shows:
 
-- Positive / negative sample counts
-- Status badge: `NOT READY`, `READY`, `LEARNED`, `OUTDATED`
-- Last learned timestamp and quality label (`Good`, `OK`, `Weak`) when available
+- Positive and negative sample counts
+- Total recorded seconds
+- Last event timestamp
 
-### 2. Record training data
+### Training lifecycle
 
-For a profile, choose **Start Training** or **Continue Training**.
+- Start training (new profile)
+- Continue training (profile with existing data)
+- Reset training data (clear positives, negatives, and index)
 
-During a session:
+### Training session behavior
 
-- Microphone starts listening immediately (permission required)
-- Tap the large **SHOT START** button at espresso shot start
-- Positive example window is captured from:
-  - `1.5s` before tap
-  - `2.5s` after tap
-- Background negatives are captured automatically from windows at least `3.0s` away from any positive window
-- You can also tap **Add background now**
+- Microphone starts immediately when session opens (permission required)
+- Audio is recorded continuously into a rolling ~10s buffer
+- Large **SHOT START** button labels a positive event
+- Positive window saved as: `1.5s` pre-roll + `2.5s` post-roll
+- Negative/background windows (`2.0s`) are captured automatically from regions at least `3.0s` away from shot events
+- Optional manual negative capture via **Add Background Sample Now**
+- Session can be stopped safely anytime without data loss
 
-Readiness thresholds:
+UI summary includes:
 
-- Positives: `>= 20`
-- Negatives: `>= 40`
+- Positives, negatives, session positives, pending shot events
+- Total recorded seconds
+- Last event timestamp
+- Buffered audio seconds
+- Guidance text: record at least 20 shot starts
 
-### 3. Compute learned trigger
+## Audio backend dependency
 
-When profile status is `READY`, run **Compute Learned Trigger**.  
-If more data is added later, status becomes `OUTDATED` and action becomes **Recompute Learned Trigger**.
+This Android implementation uses `AudioRecord` (platform microphone API).
 
-The compute pipeline:
+If microphone permission/device is unavailable, Training Mode stays open and shows a clear error/retry state instead of crashing.
 
-- Extracts fixed log-mel features from WAV samples
-- Trains a deterministic linear logistic regression model
-- Normalizes features with saved mean/std
-- Chooses threshold by best validation F1 (precision tie-break)
-- Writes compact artifact + report locally
+## Local storage
 
-## Microphone dependency
-
-This Android implementation uses the platform `AudioRecord` backend (not Python `sounddevice`).  
-If mic permission is denied or mic init fails, Training Mode still opens and shows an error state with retry guidance.
-
-## Local data layout
-
-All training data is stored locally in app-private storage:
+Training data is saved in app-private storage:
 
 `/data/user/0/com.schbrongx.espressotimer/files/data/`
 
-Structure:
+Layout:
 
 ```text
 data/
   profiles.json
   training/<profile_id>/
     positives/
-      *.wav
-      *.json
+      <ISO8601>_pos_*.wav
+      <ISO8601>_pos_*.json
     negatives/
-      *.wav
-      *.json
-    events.jsonl
-    learned/
-      model.json
-      report.json
-      learned_at.txt
+      <ISO8601>_neg_*.wav
+      <ISO8601>_neg_*.json
+    index.jsonl
 ```
 
-## Learned artifact output
-
-`learned/model.json` contains:
-
-- Feature extractor settings
-- Normalization stats (`mean`, `std`)
-- Linear model parameters (`weights`, `bias`)
-- Decision threshold
-- Dataset revision used for training
-
-`learned/report.json` contains:
-
-- Sample counts
-- Train/validation split details
-- Metrics (`accuracy`, `precision`, `recall`, `f1`)
-- Recommended threshold and rationale
-- Quality label (`Good`, `OK`, `Weak`)
-
-These artifacts are prepared for future runtime audio-trigger integration.  
-Auto-start timer runtime logic is intentionally not wired yet.
+All audio stays local on device. No upload is performed.
 

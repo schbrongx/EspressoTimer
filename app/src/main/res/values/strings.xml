@@ -65,4 +65,10 @@
     <string name="training_status_learned">LEARNED</string>
     <string name="training_status_outdated">OUTDATED</string>
     <string name="training_learned_success">Learned Trigger erfolgreich berechnet.</string>
+    <string name="training_guidance_minimum">Empfehlung: Mindestens 20 Shot-Starts und 40 Hintergrundbeispiele aufnehmen.</string>
+    <string name="training_total_recorded">Gesamt aufgezeichnet</string>
+    <string name="training_last_event">Letztes Event</string>
+    <string name="training_pending_events">Ausstehende Shot-Events</string>
+    <string name="training_session_positives">Session Positive</string>
+    <string name="training_buffered_audio">Puffer-Audio</string>
 </resources>

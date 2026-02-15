@@ -41,6 +41,25 @@ class TimestampedRingBuffer(
   fun latestMonotonicSec(): Double? = chunks.lastOrNull()?.endMonotonicSec
 
   @Synchronized
+  fun earliestMonotonicSec(): Double? = chunks.firstOrNull()?.startMonotonicSec
+
+  @Synchronized
+  fun bufferedDurationSeconds(): Double {
+    if (chunks.isEmpty()) {
+      return 0.0
+    }
+    return (chunks.last().endMonotonicSec - chunks.first().startMonotonicSec).coerceAtLeast(0.0)
+  }
+
+  @Synchronized
+  fun coverageWindowSeconds(): Pair<Double, Double>? {
+    if (chunks.isEmpty()) {
+      return null
+    }
+    return chunks.first().startMonotonicSec to chunks.last().endMonotonicSec
+  }
+
+  @Synchronized
   fun extractWindow(windowStartSec: Double, windowEndSec: Double): ShortArray? {
     if (windowEndSec <= windowStartSec) {
       return null
@@ -109,4 +128,3 @@ class TimestampedRingBuffer(
     }
   }
 }
-

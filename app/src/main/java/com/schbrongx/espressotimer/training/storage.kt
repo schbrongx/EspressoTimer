@@ -6,7 +6,6 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.io.FileWriter
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
@@ -26,6 +25,7 @@ data class SampleSaveRequest(
   val samples: ShortArray,
   val tapTimeWallIso: String,
   val tapTimeMonotonicSec: Double,
+  val sourceDeviceInfo: String? = null,
   val windowPreSeconds: Double? = null,
   val windowPostSeconds: Double? = null,
   val windowLengthSeconds: Double? = null,
@@ -37,17 +37,15 @@ data class SavedSample(
   val sha256: String,
 )
 
-class TrainingStorage(private val context: Context) {
+class TrainingStorage(private val dataRoot: File) {
+  constructor(context: Context) : this(File(context.filesDir, "data"))
+
   companion object {
     private const val Tag = "TrainingStorage"
     private const val ProfilesFileName = "profiles.json"
-    private const val EventsFileName = "events.jsonl"
-    private const val ModelFileName = "model.json"
-    private const val ReportFileName = "report.json"
-    private const val LearnedAtFileName = "learned_at.txt"
+    private const val IndexFileName = "index.jsonl"
   }
 
-  private val dataRoot: File = File(context.filesDir, "data")
   private val trainingRoot: File = File(dataRoot, "training")
 
   init {
@@ -73,24 +71,15 @@ class TrainingStorage(private val context: Context) {
 
   fun getNegativesDir(profileId: String): File = File(getProfileTrainingDir(profileId), SampleLabel.Negative.folderName)
 
-  fun getEventsFile(profileId: String): File = File(getProfileTrainingDir(profileId), EventsFileName)
-
-  fun getLearnedDir(profileId: String): File = File(getProfileTrainingDir(profileId), "learned")
-
-  fun getLearnedModelFile(profileId: String): File = File(getLearnedDir(profileId), ModelFileName)
-
-  fun getLearnedReportFile(profileId: String): File = File(getLearnedDir(profileId), ReportFileName)
-
-  fun getLearnedAtFile(profileId: String): File = File(getLearnedDir(profileId), LearnedAtFileName)
+  fun getIndexFile(profileId: String): File = File(getProfileTrainingDir(profileId), IndexFileName)
 
   fun ensureProfileLayout(profileId: String) {
     getPositivesDir(profileId).mkdirs()
     getNegativesDir(profileId).mkdirs()
-    getLearnedDir(profileId).mkdirs()
-    val eventsFile = getEventsFile(profileId)
-    if (!eventsFile.exists()) {
-      eventsFile.parentFile?.mkdirs()
-      eventsFile.createNewFile()
+    val indexFile = getIndexFile(profileId)
+    if (!indexFile.exists()) {
+      indexFile.parentFile?.mkdirs()
+      indexFile.createNewFile()
     }
   }
 
@@ -114,8 +103,12 @@ class TrainingStorage(private val context: Context) {
       getNegativesDir(request.profileId)
     }
 
-    val timestamp = System.currentTimeMillis()
-    val sampleId = "${request.label.value}_${timestamp}_${UUID.randomUUID().toString().take(8)}"
+    val wallInstant = runCatching { Instant.parse(request.tapTimeWallIso) }.getOrElse { Instant.now() }
+    val sampleIdPrefix = DateTimeFormatter.ISO_INSTANT.format(wallInstant)
+      .replace(":", "-")
+      .replace(".", "_")
+    val suffix = if (request.label == SampleLabel.Positive) "pos" else "neg"
+    val sampleId = "${sampleIdPrefix}_${suffix}_${UUID.randomUUID().toString().take(6)}"
     val wavFile = File(labelDir, "$sampleId.wav")
     val metadataFile = File(labelDir, "$sampleId.json")
 
@@ -135,40 +128,44 @@ class TrainingStorage(private val context: Context) {
       put("sample_width", TrainingConfig.sampleWidthBytes)
       put("tap_time_wall", request.tapTimeWallIso)
       put("tap_time_monotonic", request.tapTimeMonotonicSec)
+      put("source_device_info", request.sourceDeviceInfo ?: JSONObject.NULL)
       put("sha256", sha256)
       if (request.label == SampleLabel.Positive) {
-        put("window_pre_s", request.windowPreSeconds ?: TrainingConfig.positivePreRollSeconds)
-        put("window_post_s", request.windowPostSeconds ?: TrainingConfig.positivePostRollSeconds)
+        put("pre_roll_s", request.windowPreSeconds ?: TrainingConfig.positivePreRollSeconds)
+        put("post_roll_s", request.windowPostSeconds ?: TrainingConfig.positivePostRollSeconds)
       } else {
         put("window_len_s", request.windowLengthSeconds ?: TrainingConfig.negativeWindowSeconds)
       }
     }
     atomicWriteText(metadataFile, metadata.toString(2))
 
-    val event = JSONObject().apply {
+    val indexEntry = JSONObject().apply {
       put("event_time_wall", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
       put("profile_id", request.profileId)
       put("profile_name", request.profileName)
       put("label", request.label.value)
-      put("wav_file", wavFile.name)
-      put("metadata_file", metadataFile.name)
+      put("wav_file", wavFile.absolutePath)
+      put("metadata_file", metadataFile.absolutePath)
       put("sha256", sha256)
       put("tap_time_wall", request.tapTimeWallIso)
       put("tap_time_monotonic", request.tapTimeMonotonicSec)
     }
-    appendEvent(request.profileId, event)
+    appendIndexEntry(request.profileId, indexEntry)
 
     return SavedSample(wavFile = wavFile, metadataFile = metadataFile, sha256 = sha256)
   }
 
   @Synchronized
-  fun appendEvent(profileId: String, event: JSONObject) {
+  fun appendIndexEntry(profileId: String, entry: JSONObject) {
     ensureProfileLayout(profileId)
-    val eventsFile = getEventsFile(profileId)
-    FileWriter(eventsFile, true).use { writer ->
-      writer.append(event.toString())
-      writer.appendLine()
+    val indexFile = getIndexFile(profileId)
+    val existingContent = if (indexFile.exists()) indexFile.readText() else ""
+    val updatedContent = buildString {
+      append(existingContent)
+      append(entry.toString())
+      appendLine()
     }
+    atomicWriteText(indexFile, updatedContent)
   }
 
   fun countSamples(profileId: String, label: SampleLabel): Int {
@@ -206,38 +203,6 @@ class TrainingStorage(private val context: Context) {
     }
   }
 
-  fun readLearnedReport(profileId: String): JSONObject? {
-    val reportFile = getLearnedReportFile(profileId)
-    if (!reportFile.exists()) {
-      return null
-    }
-    return runCatching { JSONObject(reportFile.readText()) }.getOrNull()
-  }
-
-  @Synchronized
-  fun writeLearnedArtifacts(
-    profileId: String,
-    modelJson: JSONObject,
-    reportJson: JSONObject,
-    learnedAtIso: String,
-  ) {
-    ensureProfileLayout(profileId)
-    val learnedDir = getLearnedDir(profileId)
-    learnedDir.mkdirs()
-
-    atomicWriteText(getLearnedModelFile(profileId), modelJson.toString(2))
-    atomicWriteText(getLearnedReportFile(profileId), reportJson.toString(2))
-    atomicWriteText(getLearnedAtFile(profileId), learnedAtIso)
-  }
-
-  fun hasLearnedArtifacts(profileId: String): Boolean {
-    return getLearnedModelFile(profileId).exists() && getLearnedReportFile(profileId).exists()
-  }
-
-  fun readLearnedAt(profileId: String): String? {
-    val file = getLearnedAtFile(profileId)
-    return if (file.exists()) file.readText().trim() else null
-  }
 }
 
 object WavCodec {

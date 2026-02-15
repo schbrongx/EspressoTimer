@@ -65,4 +65,10 @@
     <string name="training_status_learned">LEARNED</string>
     <string name="training_status_outdated">OUTDATED</string>
     <string name="training_learned_success">Learned trigger computed successfully.</string>
+    <string name="training_guidance_minimum">Guidance: Record at least 20 shot starts and 40 background samples.</string>
+    <string name="training_total_recorded">Total recorded</string>
+    <string name="training_last_event">Last event</string>
+    <string name="training_pending_events">Pending shot events</string>
+    <string name="training_session_positives">Session positives</string>
+    <string name="training_buffered_audio">Buffered audio</string>
 </resources>

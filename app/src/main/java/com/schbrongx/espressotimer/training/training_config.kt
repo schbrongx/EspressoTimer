@@ -11,10 +11,10 @@ object TrainingConfig {
   const val negativeDistanceFromPositiveSeconds: Double = 3.0
 
   const val ringBufferSeconds: Double = 10.0
+  const val tapDebounceSeconds: Double = 0.5
   const val minPositivesReady: Int = 20
   const val minNegativesReady: Int = 40
 
   const val maxNegativesPerSession: Int = 120
   const val targetNegativeMultiplier: Int = 2
 }
-

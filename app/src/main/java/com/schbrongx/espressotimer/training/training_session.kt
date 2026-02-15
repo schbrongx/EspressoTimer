@@ -12,7 +12,9 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.format.DateTimeFormatter
+import kotlin.math.max
 import kotlin.math.min
+import kotlin.random.Random
 
 data class TrainingSessionUiState(
   val profileId: String? = null,
@@ -21,8 +23,12 @@ data class TrainingSessionUiState(
   val microphoneStatus: MicrophoneStatus = MicrophoneStatus.Ready,
   val sessionPositives: Int = 0,
   val sessionNegatives: Int = 0,
+  val pendingPositiveEvents: Int = 0,
   val totalPositives: Int = 0,
   val totalNegatives: Int = 0,
+  val totalRecordedSeconds: Double = 0.0,
+  val lastEventWallIso: String? = null,
+  val bufferedSeconds: Double = 0.0,
   val missingPositives: Int = TrainingConfig.minPositivesReady,
   val missingNegatives: Int = TrainingConfig.minNegativesReady,
   val infoMessage: String? = null,
@@ -48,7 +54,10 @@ class TrainingSessionManager(
   )
   private val pendingTaps = mutableListOf<PendingTap>()
   private val positiveWindows = mutableListOf<TimeWindow>()
+  private val random = Random(13_371)
   private var lastNegativeCaptureAtSec: Double = Double.NEGATIVE_INFINITY
+  private var lastNegativeAttemptAtSec: Double = Double.NEGATIVE_INFINITY
+  private var lastTapAtSec: Double = Double.NEGATIVE_INFINITY
   private var profile: TrainingProfile? = null
 
   private var sessionPositives: Int = 0
@@ -76,6 +85,8 @@ class TrainingSessionManager(
       positiveWindows.clear()
       ringBuffer.clear()
       lastNegativeCaptureAtSec = Double.NEGATIVE_INFINITY
+      lastNegativeAttemptAtSec = Double.NEGATIVE_INFINITY
+      lastTapAtSec = Double.NEGATIVE_INFINITY
       updateUiState(
         profile = profile,
         isRunning = false,
@@ -91,7 +102,7 @@ class TrainingSessionManager(
       updateUiState(
         profile = profile,
         isRunning = started,
-        infoMessage = if (started) null else "Microphone unavailable. Check permission and audio device.",
+        infoMessage = if (started) "Listening. Tap SHOT START exactly when the shot starts." else "Microphone unavailable. Check permission and audio device.",
       )
     }
     return started
@@ -104,6 +115,7 @@ class TrainingSessionManager(
       updateUiState(
         profile = profile,
         isRunning = false,
+        infoMessage = null,
       )
     }
   }
@@ -112,7 +124,11 @@ class TrainingSessionManager(
     synchronized(lock) {
       sessionPositives = 0
       sessionNegatives = 0
-      updateUiState(profile = profile, isRunning = uiStateFlow.value.isRunning, infoMessage = null)
+      updateUiState(
+        profile = profile,
+        isRunning = uiStateFlow.value.isRunning,
+        infoMessage = "Session counters reset.",
+      )
     }
   }
 
@@ -130,15 +146,16 @@ class TrainingSessionManager(
       val nowSec = ringBuffer.latestMonotonicSec() ?: (SystemClock.elapsedRealtimeNanos() / 1_000_000_000.0)
       val startSec = nowSec - TrainingConfig.negativeWindowSeconds
       val endSec = nowSec
+      if (!ringBuffer.hasWindow(startSec, endSec)) {
+        uiStateFlow.value = uiStateFlow.value.copy(infoMessage = "Not enough buffered audio yet.")
+        return false
+      }
       if (!isWindowFarFromPositives(startSec, endSec)) {
-        uiStateFlow.value = uiStateFlow.value.copy(infoMessage = "Background sample too close to tap window.")
+        uiStateFlow.value = uiStateFlow.value.copy(infoMessage = "Background sample is too close to a shot event.")
         return false
       }
-      val samples = ringBuffer.extractWindow(startSec, endSec)
-      if (samples == null) {
-        uiStateFlow.value = uiStateFlow.value.copy(infoMessage = "Not enough buffered audio for background sample.")
-        return false
-      }
+
+      val samples = ringBuffer.extractWindow(startSec, endSec) ?: return false
       persistSample(
         profile = activeProfile,
         label = SampleLabel.Negative,
@@ -149,7 +166,7 @@ class TrainingSessionManager(
       sessionNegatives += 1
       lastNegativeCaptureAtSec = nowSec
       refreshProfileFromRepository(activeProfile.id)
-      uiStateFlow.value = uiStateFlow.value.copy(infoMessage = "Background sample added.")
+      uiStateFlow.value = uiStateFlow.value.copy(infoMessage = "Background sample saved.")
       return true
     }
   }
@@ -160,10 +177,30 @@ class TrainingSessionManager(
         uiStateFlow.value = uiStateFlow.value.copy(infoMessage = "Training session is not running.")
         return false
       }
+
       val tapMonotonicSec = SystemClock.elapsedRealtimeNanos() / 1_000_000_000.0
+      if ((tapMonotonicSec - lastTapAtSec) < TrainingConfig.tapDebounceSeconds) {
+        uiStateFlow.value = uiStateFlow.value.copy(infoMessage = "Tap ignored (debounce: 500 ms).")
+        return false
+      }
+      lastTapAtSec = tapMonotonicSec
+
+      val preRollStart = tapMonotonicSec - TrainingConfig.positivePreRollSeconds
+      if (!ringBuffer.hasWindow(preRollStart, tapMonotonicSec)) {
+        val buffered = ringBuffer.bufferedDurationSeconds()
+        uiStateFlow.value = uiStateFlow.value.copy(
+          infoMessage = "Buffering pre-roll audio (${String.format("%.1f", buffered)}s/${TrainingConfig.positivePreRollSeconds}s)."
+        )
+        return false
+      }
+
       val tapWallIso = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
       pendingTaps += PendingTap(tapMonotonicSec = tapMonotonicSec, tapWallIso = tapWallIso)
-      uiStateFlow.value = uiStateFlow.value.copy(infoMessage = "Tap captured. Saving positive window...")
+      updateUiState(
+        profile = profile,
+        isRunning = true,
+        infoMessage = "Shot start marker captured. Saving after post-roll completes...",
+      )
       return true
     }
   }
@@ -214,11 +251,12 @@ class TrainingSessionManager(
       if (currentMonotonicSec < windowEnd) {
         continue
       }
+
       val samples = ringBuffer.extractWindow(windowStart, windowEnd)
       if (samples == null) {
         iterator.remove()
         uiStateFlow.value = uiStateFlow.value.copy(
-          infoMessage = "Skipped one tap: buffered audio window unavailable."
+          infoMessage = "Skipped one tap: positive window not fully available."
         )
         continue
       }
@@ -240,43 +278,54 @@ class TrainingSessionManager(
 
   private fun processAutomaticNegatives(currentMonotonicSec: Double) {
     val activeProfile = profile ?: return
-    if (sessionPositives <= 0) {
-      return
-    }
     if (sessionNegatives >= TrainingConfig.maxNegativesPerSession) {
       return
     }
+
     val targetNegatives = min(
       TrainingConfig.maxNegativesPerSession,
-      sessionPositives * TrainingConfig.targetNegativeMultiplier
+      max(4, sessionPositives * TrainingConfig.targetNegativeMultiplier)
     )
-    if (sessionNegatives >= targetNegatives) {
+    if (targetNegatives <= 0 || sessionNegatives >= targetNegatives) {
       return
     }
-    if (currentMonotonicSec - lastNegativeCaptureAtSec < 0.75) {
+    if (currentMonotonicSec - lastNegativeCaptureAtSec < 1.0) {
+      return
+    }
+    if (currentMonotonicSec - lastNegativeAttemptAtSec < 1.0) {
+      return
+    }
+    lastNegativeAttemptAtSec = currentMonotonicSec
+
+    val coverage = ringBuffer.coverageWindowSeconds() ?: return
+    val minEnd = coverage.first + TrainingConfig.negativeWindowSeconds
+    val maxEnd = coverage.second
+    if (maxEnd <= minEnd) {
       return
     }
 
-    val windowEnd = currentMonotonicSec
-    val windowStart = windowEnd - TrainingConfig.negativeWindowSeconds
-    if (!ringBuffer.hasWindow(windowStart, windowEnd)) {
+    repeat(10) {
+      val windowEnd = random.nextDouble(minEnd, maxEnd)
+      val windowStart = windowEnd - TrainingConfig.negativeWindowSeconds
+      if (!ringBuffer.hasWindow(windowStart, windowEnd)) {
+        return@repeat
+      }
+      if (!isWindowFarFromPositives(windowStart, windowEnd)) {
+        return@repeat
+      }
+      val samples = ringBuffer.extractWindow(windowStart, windowEnd) ?: return@repeat
+      persistSample(
+        profile = activeProfile,
+        label = SampleLabel.Negative,
+        samples = samples,
+        tapMonotonicSec = windowEnd,
+        tapWallIso = DateTimeFormatter.ISO_INSTANT.format(Instant.now()),
+      )
+      sessionNegatives += 1
+      lastNegativeCaptureAtSec = currentMonotonicSec
+      refreshProfileFromRepository(activeProfile.id)
       return
     }
-    if (!isWindowFarFromPositives(windowStart, windowEnd)) {
-      return
-    }
-
-    val samples = ringBuffer.extractWindow(windowStart, windowEnd) ?: return
-    persistSample(
-      profile = activeProfile,
-      label = SampleLabel.Negative,
-      samples = samples,
-      tapMonotonicSec = windowEnd,
-      tapWallIso = DateTimeFormatter.ISO_INSTANT.format(Instant.now()),
-    )
-    sessionNegatives += 1
-    lastNegativeCaptureAtSec = currentMonotonicSec
-    refreshProfileFromRepository(activeProfile.id)
   }
 
   private fun isWindowFarFromPositives(windowStart: Double, windowEnd: Double): Boolean {
@@ -313,18 +362,29 @@ class TrainingSessionManager(
         samples = samples,
         tapTimeWallIso = tapWallIso,
         tapTimeMonotonicSec = tapMonotonicSec,
+        sourceDeviceInfo = audioBackend.deviceInfo,
         windowPreSeconds = if (label == SampleLabel.Positive) TrainingConfig.positivePreRollSeconds else null,
         windowPostSeconds = if (label == SampleLabel.Positive) TrainingConfig.positivePostRollSeconds else null,
         windowLengthSeconds = if (label == SampleLabel.Negative) TrainingConfig.negativeWindowSeconds else null,
       )
     )
-    profilesRepository.addSample(profile.id, label)
+    val durationSeconds = samples.size.toDouble() / TrainingConfig.sampleRateHz.toDouble()
+    profilesRepository.addSample(
+      profileId = profile.id,
+      label = label,
+      durationSeconds = durationSeconds,
+      eventTimeWallIso = tapWallIso,
+    )
   }
 
   private fun refreshProfileFromRepository(profileId: String) {
     val refreshed = profilesRepository.getState().profiles.firstOrNull { it.id == profileId } ?: return
     profile = refreshed
-    updateUiState(profile = refreshed, isRunning = uiStateFlow.value.isRunning, infoMessage = uiStateFlow.value.infoMessage)
+    updateUiState(
+      profile = refreshed,
+      isRunning = uiStateFlow.value.isRunning,
+      infoMessage = uiStateFlow.value.infoMessage,
+    )
   }
 
   private fun updateUiState(profile: TrainingProfile?, isRunning: Boolean, infoMessage: String? = null) {
@@ -337,8 +397,12 @@ class TrainingSessionManager(
       microphoneStatus = uiStateFlow.value.microphoneStatus,
       sessionPositives = sessionPositives,
       sessionNegatives = sessionNegatives,
+      pendingPositiveEvents = pendingTaps.size,
       totalPositives = positives,
       totalNegatives = negatives,
+      totalRecordedSeconds = profile?.totalRecordedSeconds ?: 0.0,
+      lastEventWallIso = profile?.lastEventWallIso,
+      bufferedSeconds = ringBuffer.bufferedDurationSeconds(),
       missingPositives = (TrainingConfig.minPositivesReady - positives).coerceAtLeast(0),
       missingNegatives = (TrainingConfig.minNegativesReady - negatives).coerceAtLeast(0),
       infoMessage = infoMessage,

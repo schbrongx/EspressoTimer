@@ -29,6 +29,7 @@ typealias AudioFramesCallback = (samples: ShortArray, chunkStartMonotonicSec: Do
 
 interface AudioBackend {
   val status: StateFlow<MicrophoneStatus>
+  val deviceInfo: String?
   fun start(onFrames: AudioFramesCallback): Boolean
   fun stop()
 }
@@ -40,6 +41,7 @@ class AndroidAudioBackend(private val context: Context) : AudioBackend {
   private var readJob: Job? = null
 
   override val status: StateFlow<MicrophoneStatus> = statusFlow
+  override val deviceInfo: String = "AndroidAudioRecord/${TrainingConfig.sampleRateHz}Hz/mono/pcm16"
 
   override fun start(onFrames: AudioFramesCallback): Boolean {
     stop()
@@ -137,4 +139,3 @@ class AndroidAudioBackend(private val context: Context) : AudioBackend {
     return ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
   }
 }
-
